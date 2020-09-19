@@ -127,6 +127,7 @@ void readTemp();
 void readDust();
 void setup_gpio();
 void setup_timer();
+void alarm_sign();
 
 
 void setup_gpio() {
@@ -177,6 +178,18 @@ void setup()
 
 void loop()
 {
+	// Send the sensor data requested to MQTT server
+	if (received == true) {
+		bool requested = parseData();
+		if (requested) { req_process(mcu_mode, req_data); }
+		memset(serialBuff, 0, SERIAL_BUFF_MAX_SIZE);
+		received = false;
+	}
+	//debug
+	//debug.printf("mcu: %u / esp: %u / req: %u\n", mcu_mode, esp_mode, req_mode);
+
+	if (mcu_mode != req_mode) { if(!(mcuSetMode(req_mode))) { goto FAIL; } }
+
 	checkModeSw();
 	if (ModeFlag == HIGH) {
 		uint8_t chg_mode = (mcu_mode|STA)^AP;
@@ -190,19 +203,7 @@ void loop()
 
 	// Display current mode state
 	digitalWrite(GLED, !(mcu_mode & AP));
-
-	// Send the sensor data requested to MQTT server
-	if (received == true) {
-		bool requested = parseData();
-		if (requested) { req_process(mcu_mode, req_data); }
-		memset(serialBuff, 0, SERIAL_BUFF_MAX_SIZE);
-		received = false;
-	}
-	//debug
-	//debug.printf("mcu: %u / esp: %u / req: %u\n", mcu_mode, esp_mode, req_mode);
-
-	if (mcu_mode != req_mode) {	if(!(mcuSetMode(req_mode))) { goto FAIL; } }
-
+	
 	if (mcu_mode == STA) {
 		if(minCnt == 15) { // Get sensor data per 15 minute
 			timerFlag = true;
@@ -211,10 +212,8 @@ void loop()
 
 		if (timerFlag)
 		{
+			alarm_sign();
 			runFunc();
-			digitalWrite(RLED, LOW);   // Turn the red LED on
-			delay(250);
-			digitalWrite(RLED, HIGH);   // Turn the red LED off
 			timerFlag = false;
 		}
 #if 0
@@ -222,7 +221,6 @@ void loop()
 		// Current circumstance may be emergency
 		// therefore, send alarm signal to App of user's smartphone
 		if (abnormal == true) {
-			digitalWrite(RLED, !abnormal); // Turn the red LED on
 			runFunc();
 			/*
 			 * TODO: data processing & send data & send alarm to App
@@ -233,8 +231,8 @@ void loop()
 				sendToESP(DATA, integrated, json_len); // TODO: All data send???
 			}
 
+			alarm_sign();
 			abnormal = false; // ???
-			digitalWrite(RLED, !abnormal); // Turn the red LED off
 		}
 #endif
 		// Station mode end
@@ -244,6 +242,12 @@ void loop()
 
 FAIL:
 	delay(500);
+}
+
+void alarm_sign() {
+	digitalWrite(RLED, LOW);   // Turn the red LED on
+	delay(350);
+	digitalWrite(RLED, HIGH);   // Turn the red LED off
 }
 
 void ap_init() {
