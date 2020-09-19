@@ -1,0 +1,9 @@
+- base64 encoding(=binary to text)
+	: 8bit binary code -> 6bit text code
+		ex. xxxxxxxx xxxxxxxx xxxxxxxx -> yyyyyy yyyyyy yyyyyy yyyyyy
+	case 1. Multiple of 3
+		-> text code size is 4n/3 (n is binary code size)
+	case 2. No multiple of 3
+		-> text code size is ((4n/3) + 3) & ~3 (n is binary code size)
+
+

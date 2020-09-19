@@ -1,0 +1,45 @@
+# MQTT
+ - MQTT Network Diagram
+
+                                   <Topic "hello"> publish
+                  receive  <-----        <-----
+         subscribe <Topic "hello">
+                  <CLIENT_1>------<BROKER>------<CLIENT_2>
+                                         subscribe <Topic "world">
+                           ----->         -----> receive
+                  <Topic "world"> publish
+
+
+
+ - MQTT test in docker
+  1. docker pull esclipse-mosquitto
+  2. MQTT Broker of docker in linux
+			docker run -id -p1883:1883 -p9001:9001 --name mqtt_test eclipse-mosquitto
+			optional : when I need my configuration
+                     mkdir -p mosquitto/config
+                     mkdir -p mosquitto/data
+                     mkdir -p mosquitto/log
+                     vi mosquitto/config/mosquitto.conf
+                     -> edit and save
+                     docker run option add: -v $(pwd)/mosquitto:/mosquitto and then the mqtt of docker run in my configuration.
+  3. "MQTT Client" application run in mobile phone:<CLIENT_1>
+			3-1. nick name and host and client id set
+			3-2. the mqtt broker of docker and the mqtt CLIENT_1 connection check
+			3-3. subscribe topic create 
+  4. MQTT client run in linux:<CLIENT_2>
+			4-1. cd mosquitto-x.x.x/client
+				 mosquitto_sub -h 127.0.0.1 -t "topic_name" -p1883 (subscribe, 127.0.0.1 -> local(mqtt broker of docker) and CLIENT_2 connection)
+			4-2. mosquitto_pub -h 127.0.0.1 -t "topic_name" -m "TEST MQTT"
+  5. message check: in mqtt broker of docker and in mobile application
+
+ - Install
+		- build:dependancy packages:
+			- build-essential
+			- libc-ares-dev
+			- uuid-dev
+			- libssl-dev
+			- libcurl4-openssl-dev
+			- libmysqlclient-dev
+		- shared lib resigster:
+			export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+			sudo ldconfig /usr/local/libmake
