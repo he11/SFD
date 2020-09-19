@@ -32,26 +32,26 @@ uint8_t req_data;
 
 // Data start & end signal
 enum SE_SIGN {
-	STX				= 0xBE, // Start data
-	ETX				= 0xED // End data
+	STX = 0xBE, // Start data
+	ETX = 0xED  // End data
 };
 
 // MCU to ESP Serial OP Code
 enum OP_CODE {
-	DATA			= 0x00,	// Data ack
-	ACK				= 0x01,	// Positive ack
-	REQ				= 0x02,	// Request data
-	NAK				= 0xFE // Negative ack
+	DATA = 0x00, // Data ack
+	ACK  = 0x01, // Positive ack
+	REQ  = 0x02, // Request data
+	NAK  = 0xFE  // Negative ack
 };
 
 // MCU to ESP Serial Data Type 
 enum DATA_TYPE {
-	NONE			= 0x00,	// None state
-	AP				= 0x01,	// AP Mode
-	STA				= 0x02,	// Station Mode
-	AP_STA			= 0x03,	// AP & Station Mode
-	SENSOR			= 0xF0, // Sensor data
-	MODE_MASK		= 0xFC // Not value, used to split a mode from other data
+	NONE      = 0x00, // None state
+	AP        = 0x01, // AP Mode
+	STA       = 0x02, // Station Mode
+	AP_STA    = 0x03, // AP & Station Mode
+	SENSOR    = 0xF0, // Sensor data
+	MODE_MASK = 0xFC  // Not value, used to split a mode from other data
 };
 uint8_t mcu_mode = NONE;
 uint8_t esp_mode = NONE;
@@ -211,8 +211,9 @@ void loop()
 
 		if (timerFlag)
 		{
-			digitalWrite(RLED, LOW);   // Turn the red LED on
 			runFunc();
+			digitalWrite(RLED, LOW);   // Turn the red LED on
+			delay(250);
 			digitalWrite(RLED, HIGH);   // Turn the red LED off
 			timerFlag = false;
 		}
@@ -400,7 +401,7 @@ bool checkSensor()
 	int reading = analogRead(GAS_PIN);
 
 	bool _abnormal = (pir_val[0] == 1 || pir_val[1] == 1 || \ 
-						smoke_val[R] >= 10000 || reading >= 1000); // ??? exactly
+                        smoke_val[R] >= 10000 || reading >= 1000); // ??? exactly
 
 	return _abnormal? true : false;
 }

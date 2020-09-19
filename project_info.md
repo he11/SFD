@@ -10,27 +10,26 @@
 #	so that users can promptly evacuate in case of fire.
 #
 # Work Flow
- 1) In AP Mode
+1) In AP Mode
 
-        ___________   Send wifi info for   _____
-		|          |  access this device   |__ | An Application
-		| Smart    |  ----------------->   || || of user's Mobile phone
-		| Fire     |                       ||_||
-		| Detector |  <-----------------   |___|
-		|__________|  Wifi access &
-		              Send access info of nearby AP
-
-
- 2) In Station Mode
-    - Data to be exchanged : Sensor data & Picture & Video
+___________   Send wifi info for   _____
+|          |  access this device   |__ | An Application
+| Smart    |  ----------------->   || || of user's Mobile phone
+| Fire     |                       ||_||
+| Detector |  <-----------------   |___|
+|__________|  Wifi access &
+              Send access info of nearby AP
 
 
-                        Periodically
-        ___________     or on request     _____________  Send evacuation alarm _____
-		|          |     Send data    	  |            |  or requested data    |__ | An Application
-		| Smart    |  ----------------->  | Management |  ------------------>  || || of user's Mobile phone
-		| Fire     |                      | & Control  |                       ||_||
-		| Detector |  <-----------------  | Server     |  <------------------  |___|
-		|__________|    Periodically      |____________|      Request data
-                        or on request 
-                         Request data 
+2) In Station Mode
+- Data to be exchanged : Sensor data & Picture & Video
+
+                Periodically
+___________     or on request     _____________  Send evacuation alarm _____
+|          |     Send data        |            |  or requested data    |__ | An Application
+| Smart    |  ----------------->  | Management |  ------------------>  || || of user's Mobile phone
+| Fire     |                      | & Control  |                       ||_||
+| Detector |  <-----------------  | Server     |  <------------------  |___|
+|__________|    Periodically      |____________|      Request data
+or on request 
+Request data 

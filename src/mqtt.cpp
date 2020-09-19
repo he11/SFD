@@ -143,7 +143,7 @@ mqtt_err_t MQTT::_base64Enc(const uint8_t* pubData, size_t pubLen) {
 
 	memset(_encBuff, 0, _buffLen);
 	int err = mbedtls_base64_encode(_encBuff, _buffLen, &_encLen, \
-								reinterpret_cast<const unsigned char*>(pubData), pubLen);
+              reinterpret_cast<const unsigned char*>(pubData), pubLen);
 	if (err) { return (MQTT_ERR_ENC_FAIL | (~(err) + 1)); }
 
 	_pubLen = _encLen;
@@ -155,11 +155,11 @@ mqtt_err_t MQTT::_base64Enc(const uint8_t* pubData, size_t pubLen) {
 
 const char* MQTT::_generateUUID(char* uuid, size_t bufLen) {
 	sprintf(uuid, "%04x%04x-%04x-%04x-%04x-%04x%04x%04x", \
-							random(0xffff), random(0xffff), 
-							random(0xffff),
-							(random(0xffff) & 0x0fff) | 0x4000,
-							(random(0xffff) & 0x3fff) | 0x8000,
-							random(0xffff), random(0xffff), random(0xffff));
+                            random(0xffff), random(0xffff), 
+                            random(0xffff),
+                            (random(0xffff) & 0x0fff) | 0x4000,
+                            (random(0xffff) & 0x3fff) | 0x8000,
+                            random(0xffff), random(0xffff), random(0xffff));
 
 	return reinterpret_cast<const char*>(uuid);
 }

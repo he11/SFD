@@ -40,32 +40,32 @@ bool save_credential();
 
 // Status value
 enum {
-	OFF		= 0,
-	ON		= 1
+	OFF = 0,
+	ON  = 1
 };
 
 // Data start & end signal
 enum SE_SIGN {
-	STX				= 0xBE, // Start data
-	ETX				= 0xED // End data
+	STX = 0xBE, // Start data
+	ETX = 0xED  // End data
 };
 
 // MCU to ESP Serial OP Code
 enum OP_CODE {
-	DATA			= 0x00,	// Data ack
-	ACK				= 0x01,	// Positive ack
-	REQ				= 0x02,	// Request data
-	NAK				= 0xFE // Negative ack
+	DATA = 0x00, // Data ack
+	ACK  = 0x01, // Positive ack
+	REQ  = 0x02, // Request data
+	NAK  = 0xFE  // Negative ack
 };
 
 // MCU to ESP Serial Data Type 
 enum DATA_TYPE {
-	NONE			= 0x00,	// None state
-	AP				= 0x01,	// AP Mode
-	STA				= 0x02,	// Station Mode
-	AP_STA			= 0x03,	// AP & Station Mode
-	SENSOR          = 0xF0, // Sensor data
-	MODE_MASK       = 0xFC // Not value, used to split a mode from other data	
+	NONE      = 0x00, // None state
+	AP        = 0x01, // AP Mode
+	STA       = 0x02, // Station Mode
+	AP_STA    = 0x03, // AP & Station Mode
+	SENSOR    = 0xF0, // Sensor data
+	MODE_MASK = 0xFC  // Not value, used to split a mode from other data	
 };
 uint8_t esp_mode = NONE;
 uint8_t mcu_mode = NONE;
@@ -88,8 +88,8 @@ String wifi_list[WIFI_MAX_SIZE];
 // WiFi setting info
 bool wifi_conn = OFF;
 // AP mode access id and password
-const char* dev_ssid PROGMEM		= "Telco_Smart";
-const char* dev_pw PROGMEM			= "12345678";
+const char* dev_ssid PROGMEM = "Telco_Smart";
+const char* dev_pw PROGMEM   = "12345678";
 IPAddress apIP(192, 168, 5, 1);
 IPAddress apMask(255, 255, 255, 0);
 // Station mode id and password
@@ -101,19 +101,19 @@ bool web_bind = OFF;
 //String strList;
 WebServer server(80);
 // MQTT Server
-const char* mqtt_id PROGMEM			= "************";
-const char* mqtt_pw PROGMEM			= "************";
-const char* mqtt_server PROGMEM		= "192.168.0.5"; // "192.168.43.54"; 
-const uint16_t mqtt_port PROGMEM	= 1883;
-const char* tps1 PROGMEM			= "auth";
-const char* tps2 PROGMEM			= "config";
-const char* tps3 PROGMEM			= "photo";
-const char* tps4 PROGMEM			= "video";
-const char* tps5 PROGMEM			= "sensor";
-const char* sub_tps[] PROGMEM		= {tps1, tps2, tps3, tps4, tps5}; 
-const char* tp_photo PROGMEM		= "picture";
-const char* tp_video PROGMEM		= "stream";
-const char* tp_sensor PROGMEM		= "data";
+const char* mqtt_id PROGMEM      = "************";
+const char* mqtt_pw PROGMEM      = "************";
+const char* mqtt_server PROGMEM  = "192.168.0.5"; // "192.168.43.54"; 
+const uint16_t mqtt_port PROGMEM = 1883;
+const char* tps1 PROGMEM         = "auth";
+const char* tps2 PROGMEM         = "config";
+const char* tps3 PROGMEM         = "photo";
+const char* tps4 PROGMEM         = "video";
+const char* tps5 PROGMEM         = "sensor";
+const char* sub_tps[] PROGMEM    = {tps1, tps2, tps3, tps4, tps5}; 
+const char* tp_photo PROGMEM     = "picture";
+const char* tp_video PROGMEM     = "stream";
+const char* tp_sensor PROGMEM    = "data";
 const uint8_t sub_tp_cnt = sizeof(sub_tps)/sizeof(const char*);
 WiFiClient espClient;
 MQTT client(espClient, callback);
@@ -128,7 +128,7 @@ const char* fmt6 PROGMEM = "RAW";
 const char* fmt7 PROGMEM = "3BP2P(RGB444)";
 const char* fmt8 PROGMEM = "3BP2P(RGB555)";
 const char* img_fmt[] PROGMEM = {fmt1, fmt2, fmt3, fmt4, \
-								fmt5, fmt6, fmt7, fmt8};
+                                     fmt5, fmt6, fmt7, fmt8};
 
 void printRaw(const uint8_t* buf, size_t len) {
 	int cnt = 0;
