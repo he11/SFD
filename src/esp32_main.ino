@@ -6,22 +6,24 @@
 // Define
 #define CAMERA_MODEL_AI_THINKER
 #define WIFI_MAX_SIZE 30  // max 30, received ap list
-#define AUTH_MAX_SIZE 20  // WiFi auth info max 20
-#define WRITE_EEPROM 
+#define WIFI_ID_MAX_SIZE 30  // WiFi id max size 30
+#define WIFI_PW_MAX_SIZE 64  // WiFi password max size 64
 #define SERIAL_BUFF_MAX_SIZE 200
+#define HOUR_TO_SECOND(n) ((n)*(3600))
 //#define HTML_PAGE_MAX_SIZE 2000 // test
 //#define TOTAL_WIFI_STRING_LEN 200 // test
 // Button pin
 #define MODE_SWITCH 13
 #define toMCU Serial
 #define debug Serial
-//#define __TEST_SW__
+#define __TEST__
 
 // User custom & sdk header
 #include "esp_camera.h"	 // Camera Module 
 #include "camera_pins.h" // ---------------
-//#include "esp_wifi.h" //test
+#include "esp_wifi.h"
 #include "mqtt.h"
+#include "local_time.h"
 
 #if 1
 // Function pre-define
@@ -35,68 +37,66 @@ void setup_timer();
 String wifi_list_page();
 void handle_root();
 void handle_credential();
-bool save_credential();
+bool save_credential(wifi_config_t* conf);
 #endif
 
 // Status value
-enum {
+typedef enum {
 	OFF = 0,
 	ON  = 1
-};
+} status_t;
 
 // Data start & end signal
-enum SE_SIGN {
+typedef enum {
 	STX = 0xBE, // Start data
 	ETX = 0xED  // End data
-};
+} se_sign_t;
 
 // MCU to ESP Serial OP Code
-enum OP_CODE {
+typedef enum {
 	DATA = 0x00, // Data ack
 	ACK  = 0x01, // Positive ack
 	REQ  = 0x02, // Request data
-	NAK  = 0xFE  // Negative ack
-};
+	NAK  = 0xFE, // Negative ack
+	TEST = 0xFF  // Used to test
+} op_code_t;
 
 // MCU to ESP Serial Data Type 
-enum DATA_TYPE {
+typedef enum {
 	NONE      = 0x00, // None state
 	AP        = 0x01, // AP Mode
 	STA       = 0x02, // Station Mode
 	AP_STA    = 0x03, // AP & Station Mode
 	SENSOR    = 0xF0, // Sensor data
 	MODE_MASK = 0xFC  // Not value, used to split a mode from other data	
-};
-uint8_t esp_mode = NONE;
-uint8_t mcu_mode = NONE;
-uint8_t req_mode = STA;
+} req_data_t;
+static uint8_t esp_mode = NONE;
+static uint8_t mcu_mode = NONE;
+static uint8_t req_mode = STA;
 
 // Uart Data buffer
 uint8_t serialBuff[SERIAL_BUFF_MAX_SIZE];
 uint8_t* s_data = nullptr; // Data start point
-bool is_data = OFF;
+static bool is_data = OFF;
 
 // Intterrupt variable
-volatile uint8_t timer_cnt;
+static volatile uint8_t timer_cnt;
 hw_timer_t* timer = NULL;
 portMUX_TYPE timer_mux = portMUX_INITIALIZER_UNLOCKED;
 portMUX_TYPE ext_itrt_mux = portMUX_INITIALIZER_UNLOCKED;
 // WiFi scan info
-bool wifi_scan = OFF;
-String wifi_list[WIFI_MAX_SIZE];
+static bool wifi_scan = OFF;
+static String wifi_list[WIFI_MAX_SIZE];
 //char* wifi_list[WIFI_MAX_SIZE];
 // WiFi setting info
-bool wifi_conn = OFF;
+static bool wifi_conn = OFF;
 // AP mode access id and password
 const char* dev_ssid PROGMEM = "Telco_Smart";
 const char* dev_pw PROGMEM   = "12345678";
 IPAddress apIP(192, 168, 5, 1);
 IPAddress apMask(255, 255, 255, 0);
-// Station mode id and password
-char ap_ssid[AUTH_MAX_SIZE];
-char ap_pw[AUTH_MAX_SIZE];
 // Web server
-bool web_bind = OFF;
+static bool web_bind = OFF;
 //String htmlPage;
 //String strList;
 WebServer server(80);
@@ -117,6 +117,10 @@ const char* tp_sensor PROGMEM    = "data";
 const uint8_t sub_tp_cnt = sizeof(sub_tps)/sizeof(const char*);
 WiFiClient espClient;
 MQTT client(espClient, callback);
+// Local time
+char current[20];
+static time_t period = HOUR_TO_SECOND(6);
+LOCALTIME local(2020, 9, 23, 9, 0, 0);
 
 #ifdef __DEBUG__
 const char* fmt1 PROGMEM = "2BPP(RGB565)";
@@ -141,6 +145,32 @@ void printRaw(const uint8_t* buf, size_t len) {
 	}
 
 	debug.println();
+}
+#endif
+
+#ifdef __TEST__
+void adjust_img(int quality, uint8_t frame) {
+	sensor_t* conf = esp_camera_sensor_get();
+	framesize_t fType;
+	
+	switch (frame) {
+		case 0: fType = FRAMESIZE_QQVGA; break;
+		case 1: fType = FRAMESIZE_QQVGA2; break;
+		case 2: fType = FRAMESIZE_QCIF; break;
+		case 3: fType = FRAMESIZE_HQVGA; break;
+		case 4: fType = FRAMESIZE_QVGA; break;
+		case 5: fType = FRAMESIZE_CIF; break;
+		case 6: fType = FRAMESIZE_VGA; break;
+		case 7: fType = FRAMESIZE_SVGA; break;
+		case 8: fType = FRAMESIZE_XGA; break;
+		case 9: fType = FRAMESIZE_SXGA; break;
+		case 10: fType = FRAMESIZE_UXGA; break;
+		case 11: fType = FRAMESIZE_QXGA; break;
+		default: fType = FRAMESIZE_INVALID;
+	}
+	conf->set_framesize(conf, fType); // QQVGA/QQVGA2/QCIF/HQVGA/QVGA/CIF/VGA/SVGA/XGA/SXGA/UXGA/QXGA
+	conf->set_quality(conf, quality); // 0~63 lower means higher quality
+//	conf->set_pixformat(conf, PIXFORMAT_JPEG); // 2BPP(RGB555)/2BPP(YUV422)/18PP/JPEG/3BPP/RAW/3BP2P(RGB444)/3BP2P(RGB555)
 }
 #endif
 
@@ -180,10 +210,6 @@ SCAN_END:
 #endif
 }
 
-#if 0
-	//xEventGroupCreate()// -> serial interrupt available?
-#endif
-
 // Try to reconnect to the MQTT server 
 void reconn() {
 	// Loop until we're reconnected
@@ -220,7 +246,7 @@ void IRAM_ATTR on_timer() {
 	portEXIT_CRITICAL_ISR(&timer_mux); // lock end
 }
 
-#ifdef __TEST_SW__ // used to test
+#ifdef __TEST__ // used to test
 volatile bool test_sw = OFF;
 void IRAM_ATTR ap_set_callback() {
 	portENTER_CRITICAL_ISR(&ext_itrt_mux);
@@ -272,8 +298,8 @@ void sendToMCU(const char op_code, const uint8_t* send_data, size_t data_len) {
 void sendToMCU(const char op_code, const char send_data) {
 	toMCU.write(STX);
 	toMCU.write(op_code);
-	toMCU.write(0);
-	toMCU.write(1);
+	toMCU.write((uint8_t)0);
+	toMCU.write((uint8_t)1);
 	toMCU.write(send_data);
 	toMCU.write(ETX);
 }
@@ -299,7 +325,11 @@ size_t parseData() {
 	} else if (_op_code == ACK) { // ACK
 		if (!(*s_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
 		else { /* Data ACK */ }
-	} else { /* NAK */ }
+	} else { /* NAK */
+#ifdef __TEST__
+		if (_op_code == TEST) { adjust_img(*(s_data++), *s_data); }
+#endif
+	}
 
 	return _data_len;
 }
@@ -350,8 +380,9 @@ void setup() {
 
 void loop() {
 	// put your main code here, to run repeatedly:
-#ifdef __TEST_SW__
+#ifdef __TEST__
 	if (test_sw == ON) {
+		WiFi.disconnect(true, true); // flush test
 		portENTER_CRITICAL_ISR(&ext_itrt_mux);
 		test_sw = OFF;
 		portEXIT_CRITICAL_ISR(&ext_itrt_mux);
@@ -361,12 +392,13 @@ void loop() {
 	size_t pub_len = serialEvent();
 	if (is_data) {
 		sendToMCU(ACK, SENSOR);
-		mqtt_err_t err = send_sensor(s_data, pub_len);
+		mqtt_err_t err = send_sensor(s_data, pub_len, local.getCurrTime(current, 20));
 		is_data = OFF;
 	}
 
 #ifdef __DEBUG__
 //	debug.printf("esp: %u / mcu: %u / req: %u\n", esp_mode, mcu_mode, req_mode);
+//	WiFi.printDiag(debug);
 #endif
 
 	// ESP Mode change occur
@@ -384,19 +416,25 @@ void loop() {
 #ifdef __DEBUG__
 			debug.print("Device IP: ");
 			debug.println(WiFi.localIP());
-			WiFi.printDiag(debug);
 #endif
 		}
+
 #ifdef __DEBUG__
 //		debug.println("loop start (in Station mode)");
+//		debug.printf("MQTT buff size: %ld\n", client.getBufferSize());
 #endif
+		if (local.onSetTime(period)) { // Every 6 hours
+			if (!local.timeSync()) { local.setCalcTime(6); }
+			debug.printf("%s\n", local.getCurrTime(current, 20));
+		}
+
 		if (!client.connected()) { reconn(); }
 		// To process incoming messages to send publish data and to make a refresh of the connection
 		client.loop(); 
 		// Station mode work loop END
 	} else {
 #ifdef __DEBUG__
-		client.freeMemSize(__func__, __LINE__);
+//		client.freeMemSize(__func__, __LINE__);
 #endif
 		/*
 			TODO: Worklist
@@ -422,8 +460,8 @@ FAIL:
 }
 
 // Send sensor data
-mqtt_err_t send_sensor(const uint8_t* pub_data, size_t pub_len) {
-	mqtt_err_t err = client.sendJson((const char*)pgm_read_ptr(&tp_sensor), pub_data, pub_len);
+mqtt_err_t send_sensor(const uint8_t* pub_data, size_t pub_len, const char* curr_time) {
+	mqtt_err_t err = client.sendJson((const char*)pgm_read_ptr(&tp_sensor), pub_data, pub_len, curr_time);
 	if (err)
 		debug.printf("Publishing data failed, err code: 0x%d\n", err);
 
@@ -495,9 +533,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 	if (!memcmp((const char*)topic, "photo", 5)) { send_photo(); }
 	else if (!memcmp((const char*)topic, "video", 5)) { send_video(); }
 	else if (!memcmp((const char*)topic, "sensor", 6)) { sendToMCU(REQ, SENSOR); }
-	else if (!memcmp((const char*)topic, "config", 6)) { /*TODO: Configuration?? */ }
 }
-
 
 // Setup uart serial
 void setup_uart() {
@@ -528,11 +564,11 @@ void setup_camera() {
 	config.pin_reset = RESET_GPIO_NUM;
 	config.xclk_freq_hz = 20000000;
 	// test
-	config.pixel_format = PIXFORMAT_JPEG; // 2BPP(RGB555)/2BPP(YUV422)/18PP/JPEG/3BPP/RAW/3BP2P(RGB444)/3BP2P(RGB555)
+	config.pixel_format = PIXFORMAT_JPEG;
 	//init with high specs to pre-allocate larger buffers
 	if (psramFound()) {
-		config.frame_size = FRAMESIZE_UXGA; // QQVGA/QQVGA2/QCIF/HQVGA/QVGA/CIF/VGA/SVGA/XGA/SXGA/UXGA/QXGA
-		config.jpeg_quality = 1; // 0~63 lower means higher quality
+		config.frame_size = FRAMESIZE_XGA; //FRAMESIZE_UXGA;
+		config.jpeg_quality = 10; //1;
 		config.fb_count = 2; // Number of frame buffers to be allocated. If more than one, then each frame will be acquired. (double speed)
 	} else {
 		config.frame_size = FRAMESIZE_SVGA;
@@ -550,21 +586,7 @@ void setup_camera() {
 #endif
 	}
 }
-#if 0
-void detail_config() {
 
-	sensor_t* s = esp_camera_sensor_get();
-	//initial sensors are flipped vertically and colors are a bit saturated
-	if (s->id.PID == OV3660_PID) {
-		s->set_vflip(s, 1);//flip it back
-		s->set_brightness(s, 1);//up the blightness just a bit
-		s->set_saturation(s, -2);//lower the saturation
-	}
-	//drop down frame size for higher initial frame rate
-	s->set_framesize(s, FRAMESIZE_QVGA);
-
-}
-#endif
 // Setup wifi module
 bool setup_wifi(wifi_mode_t mode) {
 	bool res;
@@ -581,24 +603,23 @@ bool setup_wifi(wifi_mode_t mode) {
 	delay(300);
 
 	if (mode == WIFI_MODE_STA) {
-#ifdef WRITE_EEPROM 
-		/*
-			TODO: Worklist
-				1. EEPROM read(ID, Password for AP access)
-															*/
-#endif
-		WiFi.begin(ap_ssid, ap_pw);
+		wifi_config_t conf;
+		esp_wifi_get_config(WIFI_IF_STA, &conf);
+
+		const char* _ssid = reinterpret_cast<const char*>(conf.sta.ssid);
+		const char* _pw = reinterpret_cast<const char*>(conf.sta.password);
+
+		WiFi.begin(_ssid, _pw);
 		debug.print("Attempting WiFi connection");
 	} else if (mode == WIFI_MODE_APSTA || mode == WIFI_MODE_AP) {
-#if 1
-		// WiFi.disconnect(true, true); // mode test
+#if 0
 //		WiFi.softAPConfig(apIP, apIP, apMask);
 //		delay(500);
+#endif
 		/*
 			TODO: ap_ssid & ap_password getting
 					(smartconfig apply??)
 												*/
-#endif
 		WiFi.softAP((const char*)pgm_read_ptr(&dev_ssid), (const char*)pgm_read_ptr(&dev_pw));
 		IPAddress dev_ip = WiFi.softAPIP();
 		if (!web_bind) {
@@ -631,7 +652,7 @@ void setup_mqtt() {
 }
 
 void setup_gpio() {
-#ifdef __TEST_SW__ // GPIO Interrupt, used to test
+#ifdef __TEST__ // GPIO Interrupt, used to test
 	esp_err_t err;
 	pinMode(MODE_SWITCH, INPUT_PULLUP);
 
@@ -664,20 +685,43 @@ void handle_root() {
 void handle_credential() {
 	String get_ssid = server.arg("apName");
 	String get_pw = server.arg("apPw");
+	uint8_t pw_len = get_pw.length();
 	String msg;
 
-	get_ssid.toCharArray(ap_ssid, get_ssid.length()+1);
-	get_pw.toCharArray(ap_pw, get_pw.length()+1);
-#ifdef __DEBUG__
-	debug.printf("- AP_SSID: %s\n", ap_ssid);
-	debug.printf("- AP_PASSWORD: %s\n", ap_pw);
+#if 0 // TODO: check length -> alarm window display
+	if (get_ssid.length() > WIFI_ID_MAX_SIZE) {
+		server.send(200, "text/html", msg);
+		debug.println(F("SSID too long!"));
+		return;
+	}
+
+	if (!get_pw || get_pw.length() > WIFI_PW_MAX_SIZE) {
+		debug.println(F("passphrase too long!"));
+		return;
+	}
 #endif
 
-	if (save_credential()) { msg = "OK, Saved!\r\n <br>"; }
+	wifi_config_t conf;
+	memset(&conf, 0, sizeof(wifi_config_t));
+
+	const char* _ssid = get_ssid.c_str(); // const_cast<const char*>(get_ssid.c_str());
+	strcpy(reinterpret_cast<char*>(conf.sta.ssid), _ssid);
+
+	const char* _pw = get_pw.c_str(); // const_cast<const char*>(get_pw.c_str());
+	pw_len += (pw_len != WIFI_PW_MAX_SIZE)? 1 : 0; // If (length == WIFI_PW_MAX_SIZE) is the PSK
+	memcpy(reinterpret_cast<char*>(conf.sta.password), _pw, pw_len);
+
+#ifdef __DEBUG__
+	debug.printf("- AP_SSID: %s\n", _ssid);
+	debug.printf("- AP_PASSWORD: %s\n", _pw);
+#endif
+
+	if (save_credential(&conf)) { msg = "OK, Saved!\r\n <br>"; }
 	else { msg = "Fail, Not Saved!\r\n <br>"; }
 
 	server.send(200, "text/html", msg);
-	server.client().stop(); // ---- ????
+	//server.client().print('A'); // ????
+	//server.client().stop(); // ---- ????
 
 	delay(300);
 }
@@ -731,11 +775,15 @@ String wifi_list_page() {
 	return htmlPage;
 }
 
-bool save_credential() {
-#ifdef WRITE_EEPROM 
-	/*
-	   TODO: Save credentials in EEPROM
-										*/
-#endif
+bool save_credential(wifi_config_t* conf) {
+	wifi_config_t cur_conf;
+
+	esp_wifi_get_config(WIFI_IF_STA, &cur_conf);
+	if(memcmp(&cur_conf, conf, 96)) { // Temporary, only ssid, pw compare
+		esp_wifi_disconnect();
+		esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, conf);
+		if (err) { return false; }
+	} 
+
 	return true;
 }

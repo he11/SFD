@@ -5,7 +5,7 @@ BOARD_TYPE=esp32
 BOARD_NAME='AI Thinker ESP32-CAM'
 SRC_DIR=`pwd`/src
 MAIN_SRC=esp32_main.ino
-SRC_LIST="${MAIN_SRC} mqtt.cpp mqtt.h camera_pins.h"
+SRC_LIST="${MAIN_SRC} mqtt.cpp mqtt.h camera_pins.h local_time.h local_time.cpp"
 DEV_IFACE=ttyUSB
 LIB_PATH=/home/js/project/arduino/fire_detector
 CONFIG_FILE='arduino-cli.yaml'
@@ -60,18 +60,18 @@ fi
 # - Compile
 arduino-cli compile --fqbn ${TARGET_TYPE} ${BUILD_DIR}
 if [ $? -ne 0 ]; then
-	echo "compile fail"
+	echo "Compile fail"
 	exit 1
 fi
-echo "compile ok"
+echo "Compile ok"
 
 # - Upload firmware in target board
 arduino-cli upload -p ${CONNECTED} --fqbn ${TARGET_TYPE} ${BUILD_DIR}
 if [ $? -ne 0 ]; then
-	echo "upload fail"
+	echo "Upload fail"
 	exit 1
 fi
-echo "upload ok"
+echo "Upload ok"
 
 exit 0
 

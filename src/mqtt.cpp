@@ -116,12 +116,14 @@ mqtt_err_t MQTT::sendBinary(const char* topic, const uint8_t* rawData, size_t ra
 	return (!err)? PUB_OK : PUB_FAIL ;
 }
 
-mqtt_err_t MQTT::sendJson(const char* topic, const uint8_t* rawData, size_t rawLen) {
+mqtt_err_t MQTT::sendJson(const char* topic, const uint8_t* rawData, size_t rawLen, const char* current) {
 	StaticJsonDocument<JSON_PUB_MSG_CAPACITY> pubMsg;
 	StaticJsonDocument<JSON_DATA_CAPACITY> Data;
 	char uuid[37];
 	pubMsg["uuid"] = _generateUUID(uuid, 37);
-//	pubMsg["date"] = time_info; // TODO: add
+	pubMsg["date"] = current;
+	char macId[13];
+	pubMsg["mac_id"] = _getMacId(macId);
 	deserializeJson(Data, rawData, rawLen);
 	pubMsg["data"] = Data.as<JsonObject>();
 
@@ -162,6 +164,18 @@ const char* MQTT::_generateUUID(char* uuid, size_t bufLen) {
                             random(0xffff), random(0xffff), random(0xffff));
 
 	return reinterpret_cast<const char*>(uuid);
+}
+
+const char* MQTT::_getMacId(char* macId) {
+	uint8_t mac[6];
+	esp_err_t err = esp_efuse_mac_get_default(mac);
+	if (err) { return nullptr; }
+
+	for (int i=0; i<6; i++) {
+		sprintf(macId + (i<<1), "%02X", mac[i]);
+	}
+
+	return const_cast<const char*>(macId);
 }
 
 unsigned char* MQTT::_variableBuff(unsigned char* oldBuff, size_t* oldLen, size_t newLen) {

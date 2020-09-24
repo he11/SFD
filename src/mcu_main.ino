@@ -1,61 +1,61 @@
 /* SmartFireSensor R1 */
 // Timer
 HardwareTimer* Timer1;
-bool timerFlag = true;
-volatile uint8_t secCnt = 0, minCnt = 0;
+static bool timerFlag = true;
+static volatile uint8_t secCnt = 0, minCnt = 0;
 
 // SoftwareSerial
 #include <SoftwareSerial.h>
 SoftwareSerial WifiSerial(10, 9); // RX, TX
 
 // Sensor data collection completed
-bool collected = false;
+static bool collected = false;
 
 // SMOKE Sensor
 #include <Wire.h>
 #include "MAX30105.h"
 volatile int smoke_val[3];
-enum { R, IR, G };
+typedef enum { R, IR, G } smoke_t;
 
 // JSON Encode & Decode
 #include <ArduinoJson.h>
 #define DATA_DOC_CAPACITY JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)
 #define JSON_DATA_BUFF_MAX_SIZE 200
-uint8_t integrated[JSON_DATA_BUFF_MAX_SIZE];
+static uint8_t integrated[JSON_DATA_BUFF_MAX_SIZE];
 
 // Uart serial
 #define SERIAL_BUFF_MAX_SIZE 200
-uint8_t serialBuff[SERIAL_BUFF_MAX_SIZE];
-uint8_t* s_data = nullptr; // Data start point
-volatile bool received = false;
-uint8_t req_data;
+static uint8_t serialBuff[SERIAL_BUFF_MAX_SIZE];
+static uint8_t* s_data = nullptr; // Data start point
+static volatile bool received = false;
+static uint8_t req_data;
 
 // Data start & end signal
-enum SE_SIGN {
+typedef enum {
 	STX = 0xBE, // Start data
 	ETX = 0xED  // End data
-};
+} se_sign_t;
 
 // MCU to ESP Serial OP Code
-enum OP_CODE {
+typedef enum {
 	DATA = 0x00, // Data ack
 	ACK  = 0x01, // Positive ack
 	REQ  = 0x02, // Request data
 	NAK  = 0xFE  // Negative ack
-};
+} op_code_t;
 
 // MCU to ESP Serial Data Type 
-enum DATA_TYPE {
+typedef enum {
 	NONE      = 0x00, // None state
 	AP        = 0x01, // AP Mode
 	STA       = 0x02, // Station Mode
 	AP_STA    = 0x03, // AP & Station Mode
 	SENSOR    = 0xF0, // Sensor data
 	MODE_MASK = 0xFC  // Not value, used to split a mode from other data
-};
-uint8_t mcu_mode = NONE;
-uint8_t esp_mode = NONE;
-uint8_t req_mode = NONE;
+} req_data_t;
+static uint8_t mcu_mode = NONE;
+static uint8_t esp_mode = NONE;
+static uint8_t req_mode = NONE;
 
 MAX30105 particleSensor;
 
@@ -64,7 +64,7 @@ MAX30105 particleSensor;
 #define RLED D6 // PB1
 #define MODESW D2 // PA12
 #define TESTSW D3 // PB0
-volatile bool last=HIGH, curr=HIGH, ModeFlag = LOW; 
+static volatile bool last=HIGH, curr=HIGH, ModeFlag = LOW; 
 //boolean last=LOW, curr=LOW, ModeFlag=false;
 
 // Fire detect
@@ -149,14 +149,14 @@ void setup_gpio() {
 void setup_timer() {
 	TIM_TypeDef* ins = TIM1;
 	Timer1 = new HardwareTimer(ins);
-	Timer1-> setOverflow(1, HERTZ_FORMAT); // 1HZ
-	Timer1-> attachInterrupt(timerTask);
+	Timer1->setOverflow(1, HERTZ_FORMAT); // 1HZ
+	Timer1->attachInterrupt(timerTask);
 }
 
 void setup()
 {
-	debug.begin(9600);
-	WifiSerial.begin(9600);
+	debug.begin(115200);
+//	WifiSerial.begin(9600);
 
 	debug.println(F("Smart Fire Sensor R1"));
 
@@ -251,14 +251,14 @@ void alarm_sign() {
 }
 
 void ap_init() {
-	Timer1-> pause();
+	Timer1->pause();
 	secCnt = 0;
 	minCnt = 0;
 	timerFlag = true;
 }
 
 void sta_init() {
-	Timer1-> resume();
+	Timer1->resume();
 }
 
 // MCU mode setup
@@ -343,8 +343,8 @@ void sendToESP(const char op_code, const uint8_t* send_data, size_t data_len) {
 void sendToESP(const char op_code, const char send_data) {
 	toESP.write(STX);
 	toESP.write(op_code);
-	toESP.write(0);
-	toESP.write(1);
+	toESP.write((uint8_t)0);
+	toESP.write((uint8_t)1);
 	toESP.write(send_data);
 	toESP.write(ETX);
 }
@@ -425,7 +425,7 @@ void checkPir()
 {
 	pir_val[0] = digitalRead(PIR_PIN1);
 	pir_val[1] = digitalRead(PIR_PIN2);
-#if 1
+#if 0
 	debug.print(pir_val[0]);
 	debug.print(pir_val[1]);
 #endif
@@ -436,7 +436,7 @@ void checkSmoke()
 	smoke_val[R] = particleSensor.getRed();
 	smoke_val[IR] = particleSensor.getIR();
 	smoke_val[G] = particleSensor.getGreen();
-#if 1
+#if 0
 	debug.print(F(" R["));
 	debug.print(smoke_val[R]);
 	debug.print(F("] IR["));
@@ -451,7 +451,7 @@ void checkSmoke()
 void checkGas()
 {
 	int reading = analogRead(GAS_PIN);
-#if 1
+#if 0
 	debug.print(F("GAS["));
 	debug.print(reading);  
 	debug.print(F("]"));
@@ -468,7 +468,7 @@ void readTemp()
 	float c1 = 1.009249522e-03, c2 = 2.378405444e-04, c3 = 2.019202697e-07;
 	float T = (1.0 / (c1 + c2*logR2 + c3*logR2*logR2*logR2));  
 	float Tc = T - 273.15;  // valid value
-#if 1
+#if 0
 	debug.print(F("Temperature: "));
 	debug.print(Tc);  
 	debug.println(F(" C"));
@@ -504,7 +504,7 @@ void readDust()
 	delay(3000);
 	// 미세 먼지 밀도
 	float dust_density = (0.17*sensor_voltage-0.1)*1000;  // converter voltage to dust ub/m3
-#if 1
+#if 0
 	debug.print(F("DUST(ug/m3) "));
 //	debug.print(Vo_value);  
 //	debug.print(F(" "));

@@ -14,10 +14,10 @@
 #define __DEBUG__
 #define __PSRAM_EN__
 
-#define MQTT_MAX_PACKET_SIZE             60000 // 16384 // 32768
+#define MQTT_MAX_PACKET_SIZE             64000 // 16384 // 32768
 
-#define __BASE64_ENC__
-#define __PACKET_FRAG__                  32768 // Frag size must be less about 10% than MQTT_MAX_PACKET_SIZE 
+//#define __BASE64_ENC__
+//#define __PACKET_FRAG__                  64000 // 32768 // Frag size must be less about 10% than MQTT_MAX_PACKET_SIZE 
 
 typedef int32_t mqtt_err_t;
 
@@ -34,8 +34,8 @@ typedef int32_t mqtt_err_t;
 
 #define MAX_AUTH_STR_LEN                 30
 
-#define JSON_PUB_MSG_CAPACITY            JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(6)
-#define JSON_DATA_CAPACITY               JSON_OBJECT_SIZE(6)
+#define JSON_PUB_MSG_CAPACITY            JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)
+#define JSON_DATA_CAPACITY               JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)
 // #define EXPECTED_DATA_BUFF_SIZE(n)    (((((n) << 2) / 3) + x) & ~3) // about 33%
 #define EXPECTED_DATA_BUFF_SIZE(n)       ((n) * 1.4) // about 40%
 
@@ -62,6 +62,7 @@ private:
 	unsigned char* _encBuff;
 	size_t _buffLen;
 	size_t _encLen;
+
 public:
 	MQTT(Client& client, MQTT_CALLBACK_SIGNATURE);
 	~MQTT();
@@ -73,19 +74,20 @@ public:
 	 * Json Message Component
 	 * {
 	 *   "uuid": 8-4-4-4-12(string),	# RFC4122 version.4 Random values
-	 *   "date": unsigned long,			# Publication date
+	 *   "date": string,				# Publication date
+	 *   "mac_addr": string,			# Mac address of device
 	 *	 "data": {						# Sensor Data
 	 *	  "dust" : float
-	 *	  "fire" : ???
+	 *	  "fire" : bool
 	 *	  "gas" : bool
-	 *	  "motion" : bool
+	 *	  "motion" : list[bool, bool]
 	 *	  "smoke" : bool
 	 *	  "temperature" : float
 	 *	}
 	 * }
-	 * Max capacity = JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(6)
+	 * Max capacity = JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)
 	 */
-	mqtt_err_t sendJson(const char* topic, const uint8_t* rawData, size_t rawLen);
+	mqtt_err_t sendJson(const char* topic, const uint8_t* rawData, size_t rawLen, const char* current);
 	mqtt_err_t sendBinary(const char* topic, const uint8_t* rawData, size_t rawLen);
 
 #ifdef __DEBUG__
@@ -100,5 +102,6 @@ protected:
 	mqtt_err_t _base64Enc(const uint8_t* pubData, size_t pubLen);
 	unsigned char* _variableBuff(unsigned char* oldBuff, size_t* oldLen, size_t newLen);
 	const char* _generateUUID(char* uuid, size_t bufLen);
+	const char* _getMacId(char* macId);
 };
 #endif // END MQTT_H
