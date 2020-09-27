@@ -1,0 +1,45 @@
+# Use openssl (Self Signed)
+    -> Create ROOT CA Private Key (2 type key)
+        1. openssl ecparam -name secp521r1 -genkey -noout -out ca.key <-- Use ecp key
+           - openssl ecparam --list_curves (Check elliptical curve key list available)
+        2. openssl genrsa -out ca.key "KEY_SIZE"  <-- Use RSA key
+           ex. openssl genrsa -out ca.key 2048 (Recommend more than 2048)
+    
+    -> Edit Openssl.cnf
+        cp /usr/lib/ssl/openssl.cnf .
+        vi openssl.cnf
+
+    -> Create ROOT CA Certificate
+        openssl req -new -x509 -days "Duration" -key ca.key -config openssl.cnf -out ca.pem -"Hash algorithm"
+        ex. openssl req -new -x509 -days 3650 -key ca.key -config openssl.cnf -out ca.pem -sha256
+
+    -> Create Server Private Key
+        openssl genrsa -out serv.key 2048
+
+    -> Edit Openssl.cnf
+        cp /usr/lib/ssl/openssl.cnf .
+        vi openssl.cnf
+
+    -> Create Server Cert Signing request
+        openssl req -new -key serv.key -config openssl.cnf -out serv.csr -sha256
+
+    -> Create Server Cert (Self Signed)
+        openssl x509 -req -days 3650 -in serv.csr -CA "ROOT_CA_CRT_PATH"/ca.pem -CAkey "ROOT_CA_KEY_PATH"/ca.key -CAcreateserial -out serv.pem -extensions v3_req -extfile openssl.cnf -sha256
+
+    -> Create Server Cert Fingerprint
+        openssl x509 -noout -in serv.pem -fingerprint
+
+# Use "Let's Encrypt" (Use Certbot)
+    -> Install Certbot
+        apt-get update
+        # apt-get install software-properties-common (?)
+        # add-apt-repository universe (?)
+        add-apt-repository ppa:certbot/certbot
+        apt-get update
+        apt-get install certbot
+		
+    -> Create Certificate
+        certbot certonly --standalone -d "YOUR_DOMAIN" (*certonly option is important, Create only certificate)
+        ls /etc/letsencrypt/live/"YOUR_DOMAIN"
+
+	
