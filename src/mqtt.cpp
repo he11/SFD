@@ -149,7 +149,7 @@ const char* MQTT::_generateUUID(uint8_t version, char* uuid, size_t bufLen) {
                              random(0xffff), random(0xffff), random(0xffff));
 	}
 
-	return (res != 37)? nullptr : reinterpret_cast<const char*>(uuid);
+	return (res != 36)? nullptr : reinterpret_cast<const char*>(uuid);
 }
 
 const char* MQTT::_getMacId(char* macId) {
