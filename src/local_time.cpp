@@ -1,9 +1,10 @@
 /*
- * local_time.cpp - A Class to get local time
+ * local_time.cpp - Implement functions of the class for get local time
  * by Jinseong Jeon
  * Created date - 2020.09.23
  */
 
+#include <Arduino.h>
 #include "local_time.h"
 
 LOCALTIME::LOCALTIME(int YY, int MM, int DD, int hh, int mm, int ss)

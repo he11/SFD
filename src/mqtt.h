@@ -1,19 +1,16 @@
 /*
- * MQTT.h - MQTT interface class based on the "PubSubClient" class
+ * MQTT.h - Define MQTT interface class based on the "PubSubClient" class
  * by Jinseong Jeon
  * Created date - 2020.09.04
  */
 
-#ifndef MQTT_H
-#define MQTT_H
+#ifndef _MQTT_H_
+#define _MQTT_H_
 
-#include <ArduinoJson.h>
 #include <PubSubClient.h>
-#include "mbedtls/base64.h"
+#include "debugging.h"
 
-#define __DEBUG__
 #define __PSRAM_EN__
-
 #define MQTT_MAX_PACKET_SIZE             64000 // 16384 // 32768
 
 //#define __BASE64_ENC__
@@ -90,13 +87,10 @@ public:
 	mqtt_err_t sendJson(const char* topic, const uint8_t* rawData, size_t rawLen, const char* current);
 	mqtt_err_t sendBinary(const char* topic, const uint8_t* rawData, size_t rawLen);
 
-#ifdef __DEBUG__
+#ifdef _D1_
 	size_t getBuffLen();
 	size_t getEncLen();
 	const char* getEncData();
-	void freeMemSize(const char* funcName, int32_t line); // --> move
-	void print2hex(const uint8_t* buf, size_t len); // --> move
-	void printLineDiv(const char* buf, size_t len); // --> move
 #endif
 protected:
 	mqtt_err_t _base64Enc(const uint8_t* pubData, size_t pubLen);
@@ -104,4 +98,4 @@ protected:
 	const char* _generateUUID(char* uuid, size_t bufLen);
 	const char* _getMacId(char* macId);
 };
-#endif // END MQTT_H
+#endif // END _MQTT_H_

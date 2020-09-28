@@ -1,10 +1,8 @@
 // Standard header
 #include <WiFi.h>
 #include <WebServer.h>
-#include <HardwareSerial.h>
 
 // Define
-#define CAMERA_MODEL_AI_THINKER
 #define WIFI_MAX_SIZE 30  // max 30, received ap list
 #define WIFI_ID_MAX_SIZE 30  // WiFi id max size 30
 #define WIFI_PW_MAX_SIZE 64  // WiFi password max size 64
@@ -15,21 +13,18 @@
 // Button pin
 #define MODE_SWITCH 13
 #define toMCU Serial
-#define debug Serial
-#define __TEST__
 
 // User custom & sdk header
-#include "esp_camera.h"	 // Camera Module 
-#include "camera_pins.h" // ---------------
+#include "debugging.h"
+#include "camera_setup.h"
 #include "esp_wifi.h"
 #include "mqtt.h"
 #include "local_time.h"
+#include "mqtt_cert.h"
 
-#if 1
 // Function pre-define
 void callback(char* topic, byte* payload, unsigned int length);
 void setup_uart();
-void setup_camera();
 bool setup_wifi(wifi_mode_t mode);
 void setup_mqtt();
 void setup_gpio();
@@ -38,7 +33,6 @@ String wifi_list_page();
 void handle_root();
 void handle_credential();
 bool save_credential(wifi_config_t* conf);
-#endif
 
 // Status value
 typedef enum {
@@ -121,8 +115,7 @@ MQTT client(espClient, callback);
 char current[20];
 static time_t period = HOUR_TO_SECOND(6);
 LOCALTIME local(2020, 9, 23, 9, 0, 0);
-
-#ifdef __DEBUG__
+#ifdef _D1_
 const char* fmt1 PROGMEM = "2BPP(RGB565)";
 const char* fmt2 PROGMEM = "2BPP(YUV422)";
 const char* fmt3 PROGMEM = "1BPP";
@@ -132,47 +125,10 @@ const char* fmt6 PROGMEM = "RAW";
 const char* fmt7 PROGMEM = "3BP2P(RGB444)";
 const char* fmt8 PROGMEM = "3BP2P(RGB555)";
 const char* img_fmt[] PROGMEM = {fmt1, fmt2, fmt3, fmt4, \
-                                     fmt5, fmt6, fmt7, fmt8};
-
-void printRaw(const uint8_t* buf, size_t len) {
-	int cnt = 0;
-
-	for (int i=0; i<len; i++) {
-		debug.printf("%u", buf[i]);
-		if ((cnt%10)==0 && cnt)
-			debug.println();
-		cnt++;
-	}
-
-	debug.println();
-}
+                                 fmt5, fmt6, fmt7, fmt8};
 #endif
 
-#ifdef __TEST__
-void adjust_img(int quality, uint8_t frame) {
-	sensor_t* conf = esp_camera_sensor_get();
-	framesize_t fType;
-	
-	switch (frame) {
-		case 0: fType = FRAMESIZE_QQVGA; break;
-		case 1: fType = FRAMESIZE_QQVGA2; break;
-		case 2: fType = FRAMESIZE_QCIF; break;
-		case 3: fType = FRAMESIZE_HQVGA; break;
-		case 4: fType = FRAMESIZE_QVGA; break;
-		case 5: fType = FRAMESIZE_CIF; break;
-		case 6: fType = FRAMESIZE_VGA; break;
-		case 7: fType = FRAMESIZE_SVGA; break;
-		case 8: fType = FRAMESIZE_XGA; break;
-		case 9: fType = FRAMESIZE_SXGA; break;
-		case 10: fType = FRAMESIZE_UXGA; break;
-		case 11: fType = FRAMESIZE_QXGA; break;
-		default: fType = FRAMESIZE_INVALID;
-	}
-	conf->set_framesize(conf, fType); // QQVGA/QQVGA2/QCIF/HQVGA/QVGA/CIF/VGA/SVGA/XGA/SXGA/UXGA/QXGA
-	conf->set_quality(conf, quality); // 0~63 lower means higher quality
-//	conf->set_pixformat(conf, PIXFORMAT_JPEG); // 2BPP(RGB555)/2BPP(YUV422)/18PP/JPEG/3BPP/RAW/3BP2P(RGB444)/3BP2P(RGB555)
-}
-#endif
+
 
 // Search networks in around
 void scan_wifi() {
@@ -214,7 +170,9 @@ SCAN_END:
 void reconn() {
 	// Loop until we're reconnected
 	while (!client.connected()) {
+#ifdef _D0_
 		debug.print("Attempting MQTT connection...");
+#endif
 	// TODO: edit
 		// Create a random client ID
 	/*	TODO: String ---> char * change  */
@@ -223,15 +181,19 @@ void reconn() {
 		// Attempt to connect
 		if (client.connect(clientId.c_str())) {//, mqtt_id, mqtt_pw)) {
 	//
+#ifdef _D0_
 			debug.println(" connected");
+#endif
 			// Once connected, publish an announcement...
 			//client.publish(topic_auth, "This is an auth message for the reconnection.");
 			// ... and resubscribe
 			client.Subscribe(sub_tps, sub_tp_cnt);
 		} else {
+#ifdef _D0_
 			debug.print("failed, rc=");
 			debug.print(client.state());
 			debug.println(" try again in 3 seconds");
+#endif
 			// Wait about 3 seconds before retrying
 			delay(2500);
 			return;
@@ -254,18 +216,6 @@ void IRAM_ATTR ap_set_callback() {
 	portEXIT_CRITICAL_ISR(&ext_itrt_mux);
 }
 #endif
-
-#if 0 // uart interrupt
-//char abnormal[];
-char a;
-void serialEvent() {
-	if (toMCU.available() > 0) {
-	//	 = toMCU.read();
-		a = toMCU.read();
-	}
-}
-#endif
-
 
 // Ap mode initialize
 void ap_init() {
@@ -326,7 +276,7 @@ size_t parseData() {
 		if (!(*s_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
 		else { /* Data ACK */ }
 	} else { /* NAK */
-#ifdef __TEST__
+#ifdef __TEST___
 		if (_op_code == TEST) { adjust_img(*(s_data++), *s_data); }
 #endif
 	}
@@ -396,7 +346,7 @@ void loop() {
 		is_data = OFF;
 	}
 
-#ifdef __DEBUG__
+#ifdef _D1_
 //	debug.printf("esp: %u / mcu: %u / req: %u\n", esp_mode, mcu_mode, req_mode);
 //	WiFi.printDiag(debug);
 #endif
@@ -408,24 +358,28 @@ void loop() {
 		// Station mode Work loop START
 		if (WiFi.status() != WL_CONNECTED) {
 			wifi_conn = OFF;
+#ifdef _D0_
 			debug.print(".");
+#endif
 			goto FAIL;
 		} else if (!wifi_conn) {
 			wifi_conn = ON;
+#ifdef _D0_
 			debug.println(" WiFi connected");
-#ifdef __DEBUG__
 			debug.print("Device IP: ");
 			debug.println(WiFi.localIP());
 #endif
 		}
 
-#ifdef __DEBUG__
+#ifdef _D1_
 //		debug.println("loop start (in Station mode)");
 //		debug.printf("MQTT buff size: %ld\n", client.getBufferSize());
 #endif
 		if (local.onSetTime(period)) { // Every 6 hours
 			if (!local.timeSync()) { local.setCalcTime(6); }
+#ifdef _D1_
 			debug.printf("%s\n", local.getCurrTime(current, 20));
+#endif
 		}
 
 		if (!client.connected()) { reconn(); }
@@ -433,7 +387,7 @@ void loop() {
 		client.loop(); 
 		// Station mode work loop END
 	} else {
-#ifdef __DEBUG__
+#ifdef _D1_
 //		client.freeMemSize(__func__, __LINE__);
 #endif
 		/*
@@ -441,7 +395,7 @@ void loop() {
 				1. AP Setting(smart config?)
 												*/
 		// AP mode work loop START
-#ifdef __DEBUG__
+#ifdef _D1_
 //		debug.println("loop start (in AP mode)");
 //		debug.printf("scan: %u / timer: %u\n", wifi_scan, timer_cnt);
 #endif
@@ -462,8 +416,11 @@ FAIL:
 // Send sensor data
 mqtt_err_t send_sensor(const uint8_t* pub_data, size_t pub_len, const char* curr_time) {
 	mqtt_err_t err = client.sendJson((const char*)pgm_read_ptr(&tp_sensor), pub_data, pub_len, curr_time);
-	if (err)
+	if (err) {
+#ifdef _D0_
 		debug.printf("Publishing data failed, err code: 0x%d\n", err);
+#endif
+	}
 
 	return !(err)? PUB_OK : PUB_FAIL;
 }
@@ -474,17 +431,22 @@ int send_photo() {
 
 	fb = esp_camera_fb_get();
 	if (!fb) {
+#ifdef _D0_
 		debug.println("Camera capture failed");
+#endif
 		return ESP_FAIL;
 	}
 
 	mqtt_err_t err = client.sendBinary((const char*)pgm_read_ptr(&tp_photo), fb->buf, fb->len);
-	if (err)
+	if (err) {
+#ifdef _D0_
 		debug.printf("Publishing data failed, err code: 0x%d\n", err);
-#ifdef __DEBUG__
-//	const char* _data_fmt = (const char*)pgm_read_ptr(img_fmt + fb->format);
-//	debug.printf("ADDR:[enc buf: %X], SIZE:[%s: %lu enc: %lu enc buf: %d]\n", \
-//			client.getEncData(), _data_fmt, fb->len, client.getEncLen(), client.getBuffLen());
+#endif
+	}
+#ifdef _D1_
+	const char* _data_fmt = (const char*)pgm_read_ptr(img_fmt + fb->format);
+	debug.printf("ADDR:[enc buf: %X], SIZE:[%s: %lu enc: %lu enc buf: %d]\n", \
+			client.getEncData(), _data_fmt, fb->len, client.getEncLen(), client.getBuffLen());
 #endif
 	esp_camera_fb_return(fb);
 
@@ -505,16 +467,20 @@ mqtt_err_t send_video() {
 	while (timer_cnt < 3) { // about 3 minute
 		fb = esp_camera_fb_get();
 		if (!fb) {
+#ifdef _D0_
 			debug.println("Getting camera data failed");
+#endif
 			return ESP_FAIL;
 		}
 
 		mqtt_err_t err = client.sendBinary((const char*)pgm_read_ptr(&tp_video), fb->buf, fb->len);
 		if (err) {
 			err_cnt++;
+#ifdef _D0_
 			debug.printf("Publishing data failed, err code: 0x%d\n", err);
+#endif
 		}
-#ifdef __DEBUG__
+#ifdef _D1_
 //		const char* _data_fmt = (const char*)pgm_read_ptr(img_fmt + fb->format);
 //		debug.printf("ADDR:[enc buf: %X], SIZE:[%s: %lu enc: %lu enc buf: %d]\n", \
 //				client.getEncData(), _data_fmt, fb->len, client.getEncLen(), client.getBuffLen());
@@ -541,52 +507,6 @@ void setup_uart() {
 	// TODO: Uart interrupt settup
 }
 
-// Setup camera module	-> check setting --> image size
-void setup_camera() {
-	camera_config_t config;
-	config.ledc_channel = LEDC_CHANNEL_0;
-	config.ledc_timer = LEDC_TIMER_0;
-	config.pin_d0 = Y2_GPIO_NUM;
-	config.pin_d1 = Y3_GPIO_NUM;
-	config.pin_d2 = Y4_GPIO_NUM;
-	config.pin_d3 = Y5_GPIO_NUM;
-	config.pin_d4 = Y6_GPIO_NUM;
-	config.pin_d5 = Y7_GPIO_NUM;
-	config.pin_d6 = Y8_GPIO_NUM;
-	config.pin_d7 = Y9_GPIO_NUM;
-	config.pin_xclk = XCLK_GPIO_NUM;
-	config.pin_pclk = PCLK_GPIO_NUM;
-	config.pin_vsync = VSYNC_GPIO_NUM;
-	config.pin_href = HREF_GPIO_NUM;
-	config.pin_sscb_sda = SIOD_GPIO_NUM;
-	config.pin_sscb_scl = SIOC_GPIO_NUM;
-	config.pin_pwdn = PWDN_GPIO_NUM;
-	config.pin_reset = RESET_GPIO_NUM;
-	config.xclk_freq_hz = 20000000;
-	// test
-	config.pixel_format = PIXFORMAT_JPEG;
-	//init with high specs to pre-allocate larger buffers
-	if (psramFound()) {
-		config.frame_size = FRAMESIZE_XGA; //FRAMESIZE_UXGA;
-		config.jpeg_quality = 10; //1;
-		config.fb_count = 2; // Number of frame buffers to be allocated. If more than one, then each frame will be acquired. (double speed)
-	} else {
-		config.frame_size = FRAMESIZE_SVGA;
-		config.jpeg_quality = 12;
-		config.fb_count = 1;
-	}
-
-	// camera init
-	esp_err_t err = esp_camera_init(&config);
-	if (err != ESP_OK) {
-		debug.printf("Camera init failed with error 0x%x", err);
-		return;
-#if 0 // Reboot???
-		ESP.restart();
-#endif
-	}
-}
-
 // Setup wifi module
 bool setup_wifi(wifi_mode_t mode) {
 	bool res;
@@ -596,7 +516,9 @@ bool setup_wifi(wifi_mode_t mode) {
 
 	res = WiFi.mode(mode);
 	if (!res) {
+#ifdef _D0_
 		debug.println("WiFi mode setup failed");
+#endif
 		return res;
 	}
 	
@@ -610,7 +532,9 @@ bool setup_wifi(wifi_mode_t mode) {
 		const char* _pw = reinterpret_cast<const char*>(conf.sta.password);
 
 		WiFi.begin(_ssid, _pw);
+#ifdef _D0_
 		debug.print("Attempting WiFi connection");
+#endif
 	} else if (mode == WIFI_MODE_APSTA || mode == WIFI_MODE_AP) {
 #if 0
 //		WiFi.softAPConfig(apIP, apIP, apMask);
@@ -633,11 +557,10 @@ bool setup_wifi(wifi_mode_t mode) {
 			server.begin(); // TODO: how to close???
 			web_bind = ON;
 		}
-#ifdef __DEBUG__
+#ifdef _D0_
 		debug.println();
 		debug.print("Web server IP: "); // temporary
 		debug.println(dev_ip);
-//		WiFi.printDiag(debug);
 #endif
 	} else { return res; } // Wifi off
 
@@ -658,13 +581,17 @@ void setup_gpio() {
 
 	err = gpio_isr_handler_add((gpio_num_t)MODE_SWITCH, (gpio_isr_t)ap_set_callback, (void*)MODE_SWITCH);
 	if (err) {
+#ifdef _D0_
 		debug.printf("GPIO ISR handler add failed with error 0x%x\n", err);
+#endif
 		return;
 	}
 
 	err = gpio_set_intr_type((gpio_num_t)MODE_SWITCH, (gpio_int_type_t)GPIO_INTR_NEGEDGE);
 	if (err) {
+#ifdef _D0_
 		debug.printf ( "GPIO interrupt type set failed 0x%x\n", err);
+#endif
 		return;
 	}
 #endif
@@ -711,7 +638,7 @@ void handle_credential() {
 	pw_len += (pw_len != WIFI_PW_MAX_SIZE)? 1 : 0; // If (length == WIFI_PW_MAX_SIZE) is the PSK
 	memcpy(reinterpret_cast<char*>(conf.sta.password), _pw, pw_len);
 
-#ifdef __DEBUG__
+#ifdef _D0_
 	debug.printf("- AP_SSID: %s\n", _ssid);
 	debug.printf("- AP_PASSWORD: %s\n", _pw);
 #endif

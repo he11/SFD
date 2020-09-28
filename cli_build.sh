@@ -5,7 +5,8 @@ BOARD_TYPE=esp32
 BOARD_NAME='AI Thinker ESP32-CAM'
 SRC_DIR=`pwd`/src
 MAIN_SRC=esp32_main.ino
-SRC_LIST="${MAIN_SRC} mqtt.cpp mqtt.h camera_pins.h local_time.h local_time.cpp"
+SRC_LIST="${MAIN_SRC} mqtt.cpp mqtt.h camera_setup.h camera_setup.cpp \
+                      local_time.h local_time.cpp mqtt_cert.h debugging.h debugging.cpp"
 DEV_IFACE=ttyUSB
 LIB_PATH=/home/js/project/arduino/fire_detector
 CONFIG_FILE='arduino-cli.yaml'
@@ -50,11 +51,21 @@ if [ ! -d ./${BUILD_DIR} ]; then
 	mkdir ${BUILD_DIR}
 fi
 
+exist_cert=`echo ${SRC_LIST} | grep -w mqtt_cert.h`
+if [ exist_cert ]; then
+	cp ${SRC_DIR}/mqtt_cert.h ${SRC_DIR}/mqtt_cert.h.org
+	cp ${SRC_DIR}/mqtt_cert.h.bk ${SRC_DIR}/mqtt_cert.h
+fi
+
 src_exist=`ls ${BUILD_DIR} | wc -l`
 if [ ${src_exist} -eq 0 -o ${SRC_UPDATE} -ne 0 ]; then
 	for src in ${SRC_LIST}; do
 		cp ${SRC_DIR}/${src} ${BUILD_DIR}
 	done
+fi
+
+if [ exist_cert ]; then
+	mv ${SRC_DIR}/mqtt_cert.h.org ${SRC_DIR}/mqtt_cert.h
 fi
 
 # - Compile

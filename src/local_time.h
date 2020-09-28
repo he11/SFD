@@ -1,13 +1,12 @@
 /*
- * local_time.h - Information for local time class
+ * local_time.h - Define a class for get local time
  * by Jinseong Jeon
  * Created date - 2020.09.23
  */
 
-#ifndef LOCAL_TIME_H
-#define LOCAL_TIME_H
+#ifndef _LOCAL_TIME_H_
+#define _LOCAL_TIME_H_
 
-#include <Arduino.h>
 #include <sys/time.h>
 
 #define TIME_ZONE_OFFSET(n)              ((n)*(3600)) // unit: sec
@@ -58,4 +57,4 @@ public:
 protected:
 	void _saveCurrTime();
 };
-#endif // END LOCAL_TIME_H
+#endif // END _LOCAL_TIME_H_

@@ -1,9 +1,11 @@
 /*
- * MQTT.cpp - A Class based on the "PubSubClient" class for MQTT
+ * MQTT.cpp - Implement functions of the class for MQTT communication
  * by Jinseong Jeon
  * Created date - 2020.09.04
  */
 
+#include <ArduinoJson.h>
+#include "mbedtls/base64.h"
 #include "mqtt.h"
 
 MQTT::MQTT(Client& client, MQTT_CALLBACK_SIGNATURE)
@@ -23,19 +25,7 @@ MQTT::~MQTT() {
 	deleteBuffer();
 }
 
-#ifdef __DEBUG__
-// ---> debug.h move
-void MQTT::freeMemSize(const char* funcName, int32_t line) {
-	Serial.println(F("-----------------------------------------"));
-	Serial.printf("Func: %s / Line: %d\n", funcName, line);
-	Serial.printf("Free heap size: %d\n", ESP.getFreeHeap());
-	Serial.printf("Free max heap size: %d\n", ESP.getMaxAllocHeap());
-	Serial.printf("Free psram size: %d\n", ESP.getFreePsram());
-	Serial.printf("Free max psram size: %d\n", ESP.getMaxAllocPsram());
-	Serial.printf("Current stack size: %d\n", uxTaskGetStackHighWaterMark(NULL));
-	Serial.println(F("-----------------------------------------"));
-}
-
+#ifdef _D1_
 size_t MQTT::getBuffLen() {
 	return _buffLen;
 }
@@ -46,35 +36,6 @@ size_t MQTT::getEncLen() {
 
 const char* MQTT::getEncData() {
 	return reinterpret_cast<const char*>(_encBuff);
-}
-
-// Print to hex value // ---> debug.h move
-void MQTT::print2hex(const uint8_t* buf, size_t len) {
-	char hex[3];
-	uint8_t cnt = 0;
-
-	for (int i=0; i<len; i++) {
-		sprintf(hex, "%02X", buf[i]);
-		Serial.printf(" %s", hex);
-		if (cnt%10 == 0 && cnt)
-			Serial.println();
-		cnt++;
-	}
-
-	Serial.println();
-}
-
-void MQTT::printLineDiv(const char* buf, size_t len) {
-	int cnt = 0;
-
-	for (int i=0; i<len; i++) {
-		Serial.printf("%c", buf[i]);
-		if (cnt%10 == 0 && cnt)
-			Serial.println();
-		cnt++;
-	}
-
-	Serial.println();
 }
 #endif
 
@@ -106,8 +67,8 @@ mqtt_err_t MQTT::sendBinary(const char* topic, const uint8_t* rawData, size_t ra
 		_pubLen = (lenToSend > __PACKET_FRAG__)? __PACKET_FRAG__ : lenToSend;
 #endif
 		err += PubSubClient::publish(topic, _pubData, _pubLen, false)? 0 : 1;
-#ifdef __DEBUG__
-		Serial.printf("Total cnt: %hu, Left cnt: %hu, Left len: %d, Cur frag len: %lu\n", fragCnt, cntToSend, lenToSend, _pubLen);
+#ifdef _D1_
+		debug.printf("Total cnt: %hu, Left cnt: %hu, Left len: %d, Cur frag len: %lu\n", fragCnt, cntToSend, lenToSend, _pubLen);
 #endif
 		_pubData += _pubLen;
 		lenToSend -= _pubLen;
