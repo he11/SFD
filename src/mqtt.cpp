@@ -17,7 +17,8 @@ _pubData(nullptr),
 _pubLen(0),
 _encBuff(nullptr),
 _buffLen(0),
-_encLen(0)
+_encLen(0),
+_preTime(0)
 {PubSubClient::setCallback(callback);
 PubSubClient::setBufferSize(MQTT_MAX_PACKET_SIZE);}
 
@@ -81,10 +82,10 @@ mqtt_err_t MQTT::sendJson(const char* topic, const uint8_t* rawData, size_t rawL
 	StaticJsonDocument<JSON_PUB_MSG_CAPACITY> pubMsg;
 	StaticJsonDocument<JSON_DATA_CAPACITY> Data;
 	char uuid[37];
-	pubMsg["uuid"] = _generateUUID(uuid, 37);
+	pubMsg["uuid"] = _generateUUID(1, uuid, 37); //_generateUUID(4, uuid, 37);
 	pubMsg["date"] = current;
-	char macId[13];
-	pubMsg["mac_id"] = _getMacId(macId);
+//	char macId[13];
+//	pubMsg["mac_id"] = _getMacId(macId);
 	deserializeJson(Data, rawData, rawLen);
 	pubMsg["data"] = Data.as<JsonObject>();
 
@@ -116,15 +117,39 @@ mqtt_err_t MQTT::_base64Enc(const uint8_t* pubData, size_t pubLen) {
 }
 #endif
 
-const char* MQTT::_generateUUID(char* uuid, size_t bufLen) {
-	sprintf(uuid, "%04x%04x-%04x-%04x-%04x-%04x%04x%04x", \
-                            random(0xffff), random(0xffff), 
-                            random(0xffff),
-                            (random(0xffff) & 0x0fff) | 0x4000,
-                            (random(0xffff) & 0x3fff) | 0x8000,
-                            random(0xffff), random(0xffff), random(0xffff));
+const char* MQTT::_generateUUID(uint8_t version, char* uuid, size_t bufLen) {
+	uint8_t res = 0;
 
-	return reinterpret_cast<const char*>(uuid);
+	if (version == 1) {
+		time_t now;
+		uint64_t timeStamp = (time(&now) * 10000) + 122192928000000000; // since 15 October 1582
+		uint32_t tsLow = timeStamp & 0xffffffff;
+		uint16_t tsMid = (timeStamp>>32) & 0xffff;
+		uint16_t tsHigh = (timeStamp>>48) & 0x0fff;
+		uint16_t clockSeq = random(0xffff);
+		if (now < _preTime) { clockSeq++; }
+		clockSeq &= 0x3fff;
+		char macId[13];
+		res = sprintf(uuid, "%08x-%04x-%04x-%04x-%s", \
+                             tsLow, tsMid, tsHigh | 0x1000,
+                             clockSeq | 0x8000, _getMacId(macId));
+		_preTime = now;
+#ifdef _D1_
+		debug.printf("ts: %016llx / low: %08x / mid: %04hx / high: %04hx / clk: %04x\n",
+                      timeStamp, tsLow, tsMid, tsHigh, clockSeq);
+		debug.printf("uuid: %s\n", uuid);
+#endif
+	}
+	if (version == 4) {
+		res = sprintf(uuid, "%04x%04x-%04x-%04x-%04x-%04x%04x%04x", \
+                             random(0xffff), random(0xffff), 
+                             random(0xffff),
+                             (random(0xffff) & 0x0fff) | 0x4000,
+                             (random(0xffff) & 0x3fff) | 0x8000,
+                             random(0xffff), random(0xffff), random(0xffff));
+	}
+
+	return (res != 37)? nullptr : reinterpret_cast<const char*>(uuid);
 }
 
 const char* MQTT::_getMacId(char* macId) {

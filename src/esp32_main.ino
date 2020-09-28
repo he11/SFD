@@ -1,6 +1,7 @@
 // Standard header
-#include <WiFi.h>
+//#include <WiFi.h>
 #include <WebServer.h>
+#include <WiFiClientSecure.h>
 
 // Define
 #define WIFI_MAX_SIZE 30  // max 30, received ap list
@@ -97,8 +98,8 @@ WebServer server(80);
 // MQTT Server
 const char* mqtt_id PROGMEM      = "************";
 const char* mqtt_pw PROGMEM      = "************";
-const char* mqtt_server PROGMEM  = "192.168.0.5"; // "192.168.43.54"; 
-const uint16_t mqtt_port PROGMEM = 1883;
+const char* mqtt_server PROGMEM  = "172.17.0.2"; // "192.168.43.54"; 
+const uint16_t mqtt_port PROGMEM = 8883;
 const char* tps1 PROGMEM         = "auth";
 const char* tps2 PROGMEM         = "config";
 const char* tps3 PROGMEM         = "photo";
@@ -109,7 +110,8 @@ const char* tp_photo PROGMEM     = "picture";
 const char* tp_video PROGMEM     = "stream";
 const char* tp_sensor PROGMEM    = "data";
 const uint8_t sub_tp_cnt = sizeof(sub_tps)/sizeof(const char*);
-WiFiClient espClient;
+//WiFiClient espClient;
+WiFiClientSecure espClient;
 MQTT client(espClient, callback);
 // Local time
 char current[20];
@@ -426,7 +428,7 @@ mqtt_err_t send_sensor(const uint8_t* pub_data, size_t pub_len, const char* curr
 }
 
 // Send image data
-int send_photo() {
+mqtt_err_t send_photo() {
 	camera_fb_t * fb = NULL;
 
 	fb = esp_camera_fb_get();
@@ -571,6 +573,9 @@ bool setup_wifi(wifi_mode_t mode) {
 
 // Setup mqtt server
 void setup_mqtt() {
+	espClient.setCACert((const char*)pgm_read_ptr(&ca_cert));
+	espClient.setCertificate((const char*)pgm_read_ptr(&client_cert)); // for client verification
+	espClient.setPrivateKey((const char*)pgm_read_ptr(&client_private_key));	// for client verification
 	client.setServer((const char*)pgm_read_ptr(&mqtt_server), (uint16_t)pgm_read_word(&mqtt_port));
 }
 
