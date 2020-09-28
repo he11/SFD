@@ -92,7 +92,6 @@ public:
 	mqtt_err_t sendBinary(const char* topic, const uint8_t* rawData, size_t rawLen);
 
 #ifdef _D1_
-	const char* _generateUUID(uint8_t version, char* uuid, size_t bufLen);
 	size_t getBuffLen();
 	size_t getEncLen();
 	const char* getEncData();
@@ -100,7 +99,7 @@ public:
 protected:
 	mqtt_err_t _base64Enc(const uint8_t* pubData, size_t pubLen);
 	unsigned char* _variableBuff(unsigned char* oldBuff, size_t* oldLen, size_t newLen);
-//	const char* _generateUUID(uint8_t version, char* uuid, size_t bufLen);
+	const char* _generateUUID(uint8_t version, char* uuid, size_t bufLen);
 	const char* _getMacId(char* macId);
 };
 #endif // END _MQTT_H_
