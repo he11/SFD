@@ -1,4 +1,10 @@
 /* SmartFireSensor R1 */
+// Debugging
+//#define __DEBUG__
+#ifdef __DEBUG__
+#define debug Serial
+#endif
+
 // Timer
 HardwareTimer* Timer1;
 static bool timerFlag = true;
@@ -68,11 +74,13 @@ static volatile bool last=HIGH, curr=HIGH, ModeFlag = LOW;
 //boolean last=LOW, curr=LOW, ModeFlag=false;
 
 // Fire detect
-bool fire_detect = false;
+#define DANGER_ALARM_MAX_CNT 5
+uint8_t alarm_cnt=0;
+//bool fire_detect = false;
 
 // GAS Sensor
 #define GAS_PIN A5 // PA6
-volatile int reading;
+volatile int gas_volume;
 // #define GAS_EN D12 // PB4, unused
 
 // NTC Thermistor : NTC-103F397F (SAMKYOUNG Ceramic)
@@ -80,7 +88,7 @@ volatile int reading;
 volatile float Tc = 0;
 
 // PIR Sensor
-volatile byte pir_val[2];
+volatile bool pir_val[2];
 #define PIR_PIN1 A3 // PA4
 #define PIR_PIN2 A4 // PA5
 
@@ -101,10 +109,9 @@ int lastButtonState = LOW;   // the previous reading from the input pin
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
 unsigned long debounceDelay = 50;    // the debounce time; increase if the output flickers
 #endif
-#define debug Serial //Uncomment this line if you're using an Uno or ESP
 //#define debug SerialUSB //Uncomment this line if you're using a SAMD21
-//#define toESP WifiSerial
 #define toESP Serial
+//#define toESP WifiSerial
 
 // Function pre-define
 bool parseData();
@@ -155,15 +162,18 @@ void setup_timer() {
 
 void setup()
 {
-	debug.begin(115200);
-//	WifiSerial.begin(9600);
-
+	toESP.begin(115200);
+#ifdef __DEBUG__
+//	debug.begin(9600);
 	debug.println(F("Smart Fire Sensor R1"));
+#endif
 
 	// Initialize sensor
 	if (particleSensor.begin() == false)
 	{
+#ifdef __DEBUG__
 		debug.println(F("MAX30105 was not found. Please check wiring/power. "));
+#endif
 		while (1);
 	}
 
@@ -185,8 +195,10 @@ void loop()
 		memset(serialBuff, 0, SERIAL_BUFF_MAX_SIZE);
 		received = false;
 	}
-	//debug
-	//debug.printf("mcu: %u / esp: %u / req: %u\n", mcu_mode, esp_mode, req_mode);
+
+#ifdef __DEBUG__
+//	debug.printf("mcu: %u / esp: %u / req: %u\n", mcu_mode, esp_mode, req_mode);
+#endif
 
 	if (mcu_mode != req_mode) { if(!(mcuSetMode(req_mode))) { goto FAIL; } }
 
@@ -205,6 +217,33 @@ void loop()
 	digitalWrite(GLED, !(mcu_mode & AP));
 	
 	if (mcu_mode == STA) {
+		bool abnormal = checkSensor();
+		// Current circumstance may be emergency
+		// therefore, send alarm signal to App of user's smartphone
+		if (abnormal == true) {
+			runFunc();
+
+			if ((gas_volume >= 1000) && (smoke_val[R] >= 10000)) {
+				if (pir_val[0] || pir_val[1]) { // ???
+					/* TODO: Send Emergency alarm signal */
+				}
+				if (alarm_cnt < DANGER_ALARM_MAX_CNT) {
+					/* TODO: send alarm to App */
+
+					// Send emergency data to MQTT server
+					size_t json_len = dataToJson();
+					sendToESP(DATA, integrated, json_len);
+
+					alarm_cnt++;
+				}
+				alarm_sign();
+			} else {
+				alarm_cnt = 0;
+			}
+
+			abnormal = false;
+		}
+
 		if(minCnt == 15) { // Get sensor data per 15 minute
 			timerFlag = true;
 			minCnt = 0;
@@ -216,25 +255,6 @@ void loop()
 			runFunc();
 			timerFlag = false;
 		}
-#if 0
-		bool abnormal = checkSensor();
-		// Current circumstance may be emergency
-		// therefore, send alarm signal to App of user's smartphone
-		if (abnormal == true) {
-			runFunc();
-			/*
-			 * TODO: data processing & send data & send alarm to App
-			 */
-			// Send emergency data to MQTT server
-			if (1) { // TODO:send cnt... umm
-				size_t json_len = dataToJson();
-				sendToESP(DATA, integrated, json_len); // TODO: All data send???
-			}
-
-			alarm_sign();
-			abnormal = false; // ???
-		}
-#endif
 		// Station mode end
 	} else if (mcu_mode & AP) {
 		// AP mode end
@@ -353,12 +373,12 @@ void sendToESP(const char op_code, const char send_data) {
 size_t dataToJson() {
 	StaticJsonDocument<DATA_DOC_CAPACITY> Data;
 	Data["dust"] = dust_density;
-//	Data["fire"] = reading & Smoke;
-	Data["gas"] = reading;
+	Data["fire"] = (gas_volume >= 1000) && (smoke_val[R] >= 10000);
+	Data["gas"] = gas_volume >= 1000;
 	JsonArray Motion = Data.createNestedArray("motion");
 	Motion.add(pir_val[0]);
 	Motion.add(pir_val[1]);
-	Data["smoke"] = smoke_val[R];
+	Data["smoke"] = smoke_val[R] >= 10000;
 	Data["temp"] = Tc;
 
 	memset(integrated, 0, JSON_DATA_BUFF_MAX_SIZE);
@@ -402,10 +422,13 @@ bool checkSensor()
 	pir_val[0] = digitalRead(PIR_PIN1);
 	pir_val[1] = digitalRead(PIR_PIN2);
 	smoke_val[R] = particleSensor.getRed();
-	int reading = analogRead(GAS_PIN);
-
+	gas_volume = analogRead(GAS_PIN);
+#if 0
 	bool _abnormal = (pir_val[0] == 1 || pir_val[1] == 1 || \ 
-                        smoke_val[R] >= 10000 || reading >= 1000); // ??? exactly
+                        smoke_val[R] >= 10000 || gas_volume >= 1000); // ??? exactly
+#else
+	bool _abnormal = (gas_volume >= 1000) || (smoke_val[R] >= 10000);
+#endif
 
 	return _abnormal? true : false;
 }
@@ -425,7 +448,7 @@ void checkPir()
 {
 	pir_val[0] = digitalRead(PIR_PIN1);
 	pir_val[1] = digitalRead(PIR_PIN2);
-#if 0
+#ifdef __DEBUG__
 	debug.print(pir_val[0]);
 	debug.print(pir_val[1]);
 #endif
@@ -436,7 +459,7 @@ void checkSmoke()
 	smoke_val[R] = particleSensor.getRed();
 	smoke_val[IR] = particleSensor.getIR();
 	smoke_val[G] = particleSensor.getGreen();
-#if 0
+#ifdef __DEBUG__
 	debug.print(F(" R["));
 	debug.print(smoke_val[R]);
 	debug.print(F("] IR["));
@@ -450,10 +473,10 @@ void checkSmoke()
 
 void checkGas()
 {
-	int reading = analogRead(GAS_PIN);
-#if 0
+	gas_volume = analogRead(GAS_PIN);
+#ifdef __DEBUG__
 	debug.print(F("GAS["));
-	debug.print(reading);  
+	debug.print(gas_volume);  
 	debug.print(F("]"));
 	debug.println();
 #endif
@@ -467,8 +490,8 @@ void readTemp()
 	float logR2 = log(R2);  
 	float c1 = 1.009249522e-03, c2 = 2.378405444e-04, c3 = 2.019202697e-07;
 	float T = (1.0 / (c1 + c2*logR2 + c3*logR2*logR2*logR2));  
-	float Tc = T - 273.15;  // valid value
-#if 0
+	Tc = T - 273.15;  // valid value
+#ifdef __DEBUG__
 	debug.print(F("Temperature: "));
 	debug.print(Tc);  
 	debug.println(F(" C"));
@@ -503,8 +526,8 @@ void readDust()
 
 	delay(3000);
 	// 미세 먼지 밀도
-	float dust_density = (0.17*sensor_voltage-0.1)*1000;  // converter voltage to dust ub/m3
-#if 0
+	dust_density = (0.17*sensor_voltage-0.1)*1000;  // converter voltage to dust ub/m3
+#ifdef __DEBUG__
 	debug.print(F("DUST(ug/m3) "));
 //	debug.print(Vo_value);  
 //	debug.print(F(" "));

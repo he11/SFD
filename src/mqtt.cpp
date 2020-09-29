@@ -86,8 +86,10 @@ mqtt_err_t MQTT::sendJson(const char* topic, const uint8_t* rawData, size_t rawL
 	pubMsg["date"] = current;
 //	char macId[13];
 //	pubMsg["mac_id"] = _getMacId(macId);
-	deserializeJson(Data, rawData, rawLen);
-	pubMsg["data"] = Data.as<JsonObject>();
+	uint8_t getData[rawLen];
+	memcpy(getData, rawData, rawLen);
+	deserializeJson(Data, getData);
+	pubMsg["data"] = Data;
 
 	size_t msgLen = measureJson(pubMsg) + 1; // +1: for null
 	uint8_t msgBuff[msgLen];
@@ -158,7 +160,7 @@ const char* MQTT::_getMacId(char* macId) {
 	if (err) { return nullptr; }
 
 	for (int i=0; i<6; i++) {
-		sprintf(macId + (i<<1), "%02X", mac[i]);
+		sprintf(macId + (i<<1), "%02x", mac[i]);
 	}
 
 	return const_cast<const char*>(macId);

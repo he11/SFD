@@ -82,7 +82,7 @@ public:
 	 *	  "gas" : bool
 	 *	  "motion" : list[bool, bool]
 	 *	  "smoke" : bool
-	 *	  "temperature" : float
+	 *	  "temp" : float				# Temperature
 	 *	}
 	 * }
 	 * Max capacity = JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)

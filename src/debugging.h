@@ -8,7 +8,7 @@
 #define _DEBUGGING_H_
 
 #define __TEST__
-#define __DEBUG__ 0
+//#define __DEBUG__ 0
 
 #ifdef __DEBUG__
 #define debug Serial
