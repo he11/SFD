@@ -102,7 +102,7 @@ mqtt_err_t MQTT::sendImage(const char* topic, const uint8_t* rawData, size_t raw
 		_jsonBuff = _variableBuff(_jsonBuff, &_jsonLen, msgLen);
 		if (!_jsonBuff) { return MQTT_ERR_MEM_ALLOC_FAIL; }
 		serializeJson(pubMsg, _jsonBuff, msgLen);
-		_pubLen = msgLen;
+		_pubLen = msgLen - 1;
 		_pubData = reinterpret_cast<const uint8_t*>(_jsonBuff);
 #endif
 		err += PubSubClient::publish(topic, _pubData, _pubLen, false)? 0 : 1;
