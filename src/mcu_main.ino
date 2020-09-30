@@ -524,7 +524,8 @@ void readDust()
 	digitalWrite(DUST_EN, HIGH);
 	delayMicroseconds(9680);
 
-	delay(3000);
+	//delay(3000); // ??? what means?
+	delay(1000);
 	// 미세 먼지 밀도
 	dust_density = (0.17*sensor_voltage-0.1)*1000;  // converter voltage to dust ub/m3
 #ifdef __DEBUG__

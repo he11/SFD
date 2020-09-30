@@ -278,7 +278,7 @@ size_t parseData() {
 		if (!(*s_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
 		else { /* Data ACK */ }
 	} else { /* NAK */
-#ifdef __TEST___
+#ifdef __TEST__
 		if (_op_code == TEST) { adjust_img(*(s_data++), *s_data); }
 #endif
 	}
@@ -344,7 +344,7 @@ void loop() {
 	size_t pub_len = serialEvent();
 	if (is_data) {
 		sendToMCU(ACK, SENSOR);
-		mqtt_err_t err = send_sensor(s_data, pub_len, local.getCurrTime(current, 20));
+		mqtt_err_t err = send_sensor(s_data, pub_len);
 		is_data = OFF;
 	}
 
@@ -416,8 +416,8 @@ FAIL:
 }
 
 // Send sensor data
-mqtt_err_t send_sensor(const uint8_t* pub_data, size_t pub_len, const char* curr_time) {
-	mqtt_err_t err = client.sendJson((const char*)pgm_read_ptr(&tp_sensor), pub_data, pub_len, curr_time);
+mqtt_err_t send_sensor(const uint8_t* pub_data, size_t pub_len) {
+	mqtt_err_t err = client.sendData((const char*)pgm_read_ptr(&tp_sensor), pub_data, pub_len, local.getCurrTime(current, 20));
 	if (err) {
 #ifdef _D0_
 		debug.printf("Publishing data failed, err code: 0x%d\n", err);
@@ -439,7 +439,7 @@ mqtt_err_t send_photo() {
 		return ESP_FAIL;
 	}
 
-	mqtt_err_t err = client.sendBinary((const char*)pgm_read_ptr(&tp_photo), fb->buf, fb->len);
+	mqtt_err_t err = client.sendImage((const char*)pgm_read_ptr(&tp_photo), fb->buf, fb->len, local.getCurrTime(current, 20));
 	if (err) {
 #ifdef _D0_
 		debug.printf("Publishing data failed, err code: 0x%d\n", err);
@@ -475,7 +475,7 @@ mqtt_err_t send_video() {
 			return ESP_FAIL;
 		}
 
-		mqtt_err_t err = client.sendBinary((const char*)pgm_read_ptr(&tp_video), fb->buf, fb->len);
+		mqtt_err_t err = client.sendImage((const char*)pgm_read_ptr(&tp_video), fb->buf, fb->len, local.getCurrTime(current, 20));
 		if (err) {
 			err_cnt++;
 #ifdef _D0_

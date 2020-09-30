@@ -13,6 +13,7 @@
 #define __PSRAM_EN__
 #define MQTT_MAX_PACKET_SIZE             16384
 
+#define __JSON__
 #define __BASE64_ENC__
 #define __PACKET_FRAG__                  15000 // Frag size must be less about 10% than MQTT_MAX_PACKET_SIZE 
 
@@ -31,8 +32,8 @@ typedef int32_t mqtt_err_t;
 
 #define MAX_AUTH_STR_LEN                 30
 
-//#define JSON_PUB_MSG_CAPACITY            JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)
-#define JSON_PUB_MSG_CAPACITY            JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)
+#define JSON_IMAGE_PACK_CAPACITY         JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(5)
+#define JSON_DATA_PACK_CAPACITY          JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)
 #define JSON_DATA_CAPACITY               JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)
 // #define EXPECTED_DATA_BUFF_SIZE(n)    (((((n) << 2) / 3) + x) & ~3) // about 33%
 #define EXPECTED_DATA_BUFF_SIZE(n)       ((n) * 1.4) // about 40%
@@ -60,6 +61,10 @@ private:
 	unsigned char* _encBuff;
 	size_t _buffLen;
 	size_t _encLen;
+	unsigned char* _fragBuff;
+	size_t _fragLen;
+	unsigned char* _jsonBuff;
+	size_t _jsonLen;
 	time_t _preTime;
 
 public:
@@ -72,10 +77,8 @@ public:
 	/*
 	 * Json Message Component
 	 * {
-	 * //  "uuid": 8-4-4-4-12(string),	# RFC4122 version.4 Random values
 	 *   "uuid": 8-4-4-4-12(string),	# RFC4122 version.1 TimeNode base
 	 *   "date": string,				# Publication date
-	 * //  "mac_addr": string,			# Mac address of device
 	 *	 "data": {						# Sensor Data
 	 *	  "dust" : float
 	 *	  "fire" : bool
@@ -86,10 +89,23 @@ public:
 	 *	}
 	 * }
 	 * Max capacity = JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)
-	 * //Max capacity = JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)
 	 */
-	mqtt_err_t sendJson(const char* topic, const uint8_t* rawData, size_t rawLen, const char* current);
-	mqtt_err_t sendBinary(const char* topic, const uint8_t* rawData, size_t rawLen);
+	mqtt_err_t sendData(const char* topic, const uint8_t* rawData, size_t rawLen, const char* current);
+	/*
+	 * Json Message Component
+	 * {
+	 *   "uuid": 8-4-4-4-12(string),	# RFC4122 version.1 TimeNode base
+	 *   "date": string,				# Publication date
+	 *   "total_len": int,				# Total data length
+	 *   "frag": {
+	 *    "cnt": int,					# Total fragment count
+	 *    "pos": int,					# Data sequence number
+	 *   },
+	 *	 "data": string					# Base64 encoded data
+	 * }
+	 * Max capacity = JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(5)
+	 */
+	mqtt_err_t sendImage(const char* topic, const uint8_t* rawData, size_t rawLen, const char* current);
 
 #ifdef _D1_
 	size_t getBuffLen();

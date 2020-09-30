@@ -18,6 +18,10 @@ _pubLen(0),
 _encBuff(nullptr),
 _buffLen(0),
 _encLen(0),
+_fragBuff(nullptr),
+_fragLen(0),
+_jsonBuff(nullptr),
+_jsonLen(0),
 _preTime(0)
 {PubSubClient::setCallback(callback);
 PubSubClient::setBufferSize(MQTT_MAX_PACKET_SIZE);}
@@ -50,42 +54,80 @@ mqtt_err_t MQTT::Subscribe(const char** topics, uint8_t topicCnt) {
 	return MQTT_OK;
 }
 
-mqtt_err_t MQTT::sendBinary(const char* topic, const uint8_t* rawData, size_t rawLen) {
+mqtt_err_t MQTT::sendImage(const char* topic, const uint8_t* rawData, size_t rawLen, const char* current) {
 	mqtt_err_t err = 0;
 
 	_pubData = rawData;
 	_pubLen = rawLen;
-#ifdef __BASE64_ENC__
+#if defined(__BASE64_ENC__) || defined(__JSON__)
 	err = _base64Enc(_pubData, _pubLen);
 	if (err) { return err; }
 #endif
 	uint16_t fragCnt = TOTAL_FRAGMENT_CNT(_pubLen);
 	uint16_t cntToSend = fragCnt;
-	int32_t lenToSend = static_cast<int32_t>(_pubLen);
+	int32_t preLen = static_cast<int32_t>(_pubLen);
+	const uint8_t* prePos = _pubData;
+	size_t lenToSend = _pubLen;
+#ifdef __JSON__
+	char getUUID[37];
+	const char* uuid = _generateUUID(1, getUUID, 37);
+	size_t dataLen = _pubLen;
+#ifdef __PACKET_FRAG__
+	_fragBuff = _variableBuff(_fragBuff, &_fragLen, __PACKET_FRAG__+1);
+	if (!_fragBuff) { return MQTT_ERR_MEM_ALLOC_FAIL; }
+#endif
+#endif
 
 	do {
 #ifdef __PACKET_FRAG__
-		_pubLen = (lenToSend > __PACKET_FRAG__)? __PACKET_FRAG__ : lenToSend;
+		lenToSend = (preLen > __PACKET_FRAG__)? __PACKET_FRAG__ : preLen;
+#endif
+		_pubLen = lenToSend;
+		_pubData = prePos;
+#ifdef __JSON__
+		StaticJsonDocument<JSON_IMAGE_PACK_CAPACITY> pubMsg;
+		pubMsg["uuid"] = uuid;
+		pubMsg["date"] = current;
+		pubMsg["total_len"] = dataLen;
+		JsonObject frag = pubMsg.createNestedObject("frag");
+		frag["cnt"] = fragCnt;
+		frag["pos"] = fragCnt - cntToSend;
+#ifdef __PACKET_FRAG__
+		memcpy(_fragBuff, prePos, lenToSend);
+		_fragBuff[lenToSend] = '\0';
+		_pubData = reinterpret_cast<const uint8_t*>(_fragBuff);
+#endif
+		pubMsg["data"] = reinterpret_cast<const char*>(_pubData);
+		size_t msgLen = measureJson(pubMsg) + 1; // +1: for null
+		_jsonBuff = _variableBuff(_jsonBuff, &_jsonLen, msgLen);
+		if (!_jsonBuff) { return MQTT_ERR_MEM_ALLOC_FAIL; }
+		serializeJson(pubMsg, _jsonBuff, msgLen);
+		_pubLen = msgLen;
+		_pubData = reinterpret_cast<const uint8_t*>(_jsonBuff);
 #endif
 		err += PubSubClient::publish(topic, _pubData, _pubLen, false)? 0 : 1;
 #ifdef _D1_
-		debug.printf("Total cnt: %hu, Left cnt: %hu, Left len: %d, Cur frag len: %lu\n", fragCnt, cntToSend, lenToSend, _pubLen);
+		freeMemSize(__func__, __LINE__);
+#ifdef __JSON__
+		debug.printf("msgLen: %d, fragBuffLen: %d, jsonBuffLen: %d, fragBuff: %x, jsonBuff: %x\n", \
+                      msgLen, _fragLen, _jsonLen, _fragBuff, _jsonBuff);
 #endif
-		_pubData += _pubLen;
-		lenToSend -= _pubLen;
+		debug.printf("Total cnt: %hu, Left cnt: %hu, Left len: %d, Cur frag len: %lu\n", \
+                      fragCnt, cntToSend, preLen, _pubLen);
+#endif
+		prePos += lenToSend;
+		preLen -= lenToSend;
 	} while(--cntToSend);
 
 	return (!err)? PUB_OK : PUB_FAIL ;
 }
 
-mqtt_err_t MQTT::sendJson(const char* topic, const uint8_t* rawData, size_t rawLen, const char* current) {
-	StaticJsonDocument<JSON_PUB_MSG_CAPACITY> pubMsg;
+mqtt_err_t MQTT::sendData(const char* topic, const uint8_t* rawData, size_t rawLen, const char* current) {
+	StaticJsonDocument<JSON_DATA_PACK_CAPACITY> pubMsg;
 	StaticJsonDocument<JSON_DATA_CAPACITY> Data;
 	char uuid[37];
-	pubMsg["uuid"] = _generateUUID(1, uuid, 37); //_generateUUID(4, uuid, 37);
+	pubMsg["uuid"] = _generateUUID(1, uuid, 37);
 	pubMsg["date"] = current;
-//	char macId[13];
-//	pubMsg["mac_id"] = _getMacId(macId);
 	uint8_t getData[rawLen];
 	memcpy(getData, rawData, rawLen);
 	deserializeJson(Data, getData);
@@ -100,7 +142,7 @@ mqtt_err_t MQTT::sendJson(const char* topic, const uint8_t* rawData, size_t rawL
 	return PubSubClient::publish(topic, _pubData, _pubLen, false)? PUB_OK : PUB_FAIL;
 }
 
-#ifdef __BASE64_ENC__
+#if defined(__BASE64_ENC__) || defined(__JSON__)
 mqtt_err_t MQTT::_base64Enc(const uint8_t* pubData, size_t pubLen) {
 	size_t expLen = EXPECTED_DATA_BUFF_SIZE(pubLen);
 
@@ -112,6 +154,7 @@ mqtt_err_t MQTT::_base64Enc(const uint8_t* pubData, size_t pubLen) {
               reinterpret_cast<const unsigned char*>(pubData), pubLen);
 	if (err) { return (MQTT_ERR_ENC_FAIL | (~(err) + 1)); }
 
+	_encBuff[_encLen] = '\0';
 	_pubLen = _encLen;
 	_pubData = reinterpret_cast<const uint8_t*>(_encBuff);
 
@@ -179,11 +222,21 @@ unsigned char* MQTT::_variableBuff(unsigned char* oldBuff, size_t* oldLen, size_
 }
 
 void MQTT::deleteBuffer() {
-#ifdef __BASE64_ENC__
+#if defined(__BASE64_ENC__) || defined(__JSON__)
 	if (_encBuff) {
 		free(_encBuff);
 		_encBuff = nullptr;
 		_buffLen = 0;
+	}
+	if (_fragBuff) {
+		free(_fragBuff);
+		_fragBuff = nullptr;
+		_fragLen = 0;
+	}
+	if(_jsonBuff) {
+		free(_jsonBuff);
+		_jsonBuff = nullptr;
+		_jsonLen = 0;
 	}
 #endif
 }
