@@ -27,10 +27,7 @@ typedef int32_t mqtt_err_t;
 #define PUB_FAIL                        -1 /*!< Failure to publish MQTT message */
 
 #define MQTT_ERR_MEM_ALLOC_FAIL          0x100 /*!< Memory allocation failure */
-#define MQTT_ERR_AUTH_FAIL               0x200 /*!< Authentication failure to access a MQTT server */
-#define MQTT_ERR_ENC_FAIL                0x300 /*!< Data encoding failure */
-
-#define MAX_AUTH_STR_LEN                 30
+#define MQTT_ERR_ENC_FAIL                0x200 /*!< Data encoding failure */
 
 #define JSON_IMAGE_PACK_CAPACITY         JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(5)
 #define JSON_DATA_PACK_CAPACITY          JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(6) + JSON_ARRAY_SIZE(2)
@@ -54,8 +51,6 @@ typedef int32_t mqtt_err_t;
 class MQTT : public PubSubClient {
 private:
 	uint8_t _maxAuthLen;
-	unsigned char* _clientId;
-//	unsigned char* _clientPw;
 	const uint8_t* _pubData;
 	size_t _pubLen;
 	unsigned char* _encBuff;
@@ -71,7 +66,6 @@ public:
 	MQTT(Client& client, MQTT_CALLBACK_SIGNATURE);
 	~MQTT();
 
-//	void setAuthInfo(xxxx);
 	mqtt_err_t Subscribe(const char** topics, uint8_t topicCnt);
 	void deleteBuffer();
 	/*

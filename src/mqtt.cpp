@@ -10,9 +10,6 @@
 
 MQTT::MQTT(Client& client, MQTT_CALLBACK_SIGNATURE)
 : PubSubClient(client),
-_maxAuthLen(MAX_AUTH_STR_LEN),
-_clientId(nullptr),
-//_clientPw(nullptr),
 _pubData(nullptr),
 _pubLen(0),
 _encBuff(nullptr),
@@ -113,7 +110,7 @@ mqtt_err_t MQTT::sendImage(const char* topic, const uint8_t* rawData, size_t raw
                       msgLen, _fragLen, _jsonLen, _fragBuff, _jsonBuff);
 #endif
 		debug.printf("Total cnt: %hu, Left cnt: %hu, Left len: %d, Cur frag len: %lu\n", \
-                      fragCnt, cntToSend, preLen, _pubLen);
+                      fragCnt, cntToSend, preLen, lenToSend);
 #endif
 		prePos += lenToSend;
 		preLen -= lenToSend;
