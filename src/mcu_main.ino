@@ -283,11 +283,9 @@ void sta_init() {
 
 // MCU mode setup
 bool mcuSetMode(const uint8_t req_mode) {
-	if (req_mode & AP) { // AP & AP_STA
-		ap_init(); // AP mode setup
-	} else if (req_mode == STA) { // STA
-		sta_init(); // Station mode setup
-	} else { return false; } // NONE
+	if (req_mode & AP) { ap_init(); } // AP & AP_STA
+	else if (req_mode == STA) { sta_init(); } // STA
+	else { return false; } // NONE
 
 	mcu_mode = req_mode;
 	sendToESP(ACK, mcu_mode);
