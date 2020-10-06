@@ -98,7 +98,7 @@ WebServer server(80);
 // MQTT Server
 const char* mqtt_id PROGMEM      = "************";
 const char* mqtt_pw PROGMEM      = "************";
-const char* mqtt_server PROGMEM  = "172.17.0.2"; // "192.168.43.54"; 
+const char* mqtt_server PROGMEM  = "15.164.171.238"; // "172.17.0.2";
 const uint16_t mqtt_port PROGMEM = 8883;
 const char* tps1 PROGMEM         = "auth";
 const char* tps2 PROGMEM         = "config";
@@ -194,10 +194,7 @@ void reconn() {
 #ifdef _D0_
 			debug.print("failed, rc=");
 			debug.print(client.state());
-			debug.println(" try again in 3 seconds");
 #endif
-			// Wait about 3 seconds before retrying
-			delay(2500);
 			return;
 		}
 	}
@@ -577,8 +574,8 @@ bool setup_wifi(wifi_mode_t mode) {
 // Setup mqtt server
 void setup_mqtt() {
 	espClient.setCACert((const char*)pgm_read_ptr(&ca_cert));
-	espClient.setCertificate((const char*)pgm_read_ptr(&client_cert)); // for client verification
-	espClient.setPrivateKey((const char*)pgm_read_ptr(&client_private_key));	// for client verification
+//	espClient.setCertificate((const char*)pgm_read_ptr(&client_cert)); // for client verification
+//	espClient.setPrivateKey((const char*)pgm_read_ptr(&client_private_key));	// for client verification
 	client.setServer((const char*)pgm_read_ptr(&mqtt_server), (uint16_t)pgm_read_word(&mqtt_port));
 }
 
