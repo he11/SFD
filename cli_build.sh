@@ -54,7 +54,8 @@ fi
 exist_cert=`echo ${SRC_LIST} | grep -w mqtt_cert.h`
 if [ exist_cert ]; then
 	cp ${SRC_DIR}/mqtt_cert.h ${SRC_DIR}/mqtt_cert.h.org
-	cp ${SRC_DIR}/mqtt_cert.h.bk ${SRC_DIR}/mqtt_cert.h
+	cp ${SRC_DIR}/mqtt_cert.h.aws ${SRC_DIR}/mqtt_cert.h
+	#cp ${SRC_DIR}/mqtt_cert.h.bk ${SRC_DIR}/mqtt_cert.h
 fi
 
 src_exist=`ls ${BUILD_DIR} | wc -l`
