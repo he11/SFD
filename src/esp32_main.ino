@@ -84,10 +84,10 @@ static bool wifi_scan = OFF;
 static String wifi_list[WIFI_MAX_SIZE];
 //char* wifi_list[WIFI_MAX_SIZE];
 // WiFi setting info
-static bool wifi_conn = OFF;
+static bool wifi_conn;
 // AP mode access id and password
-const char* dev_ssid PROGMEM = "Telco_Smart";
-const char* dev_pw PROGMEM   = "12345678";
+const char* ap_ssid PROGMEM = "Telco_Smart";
+const char* ap_pw PROGMEM   = "12345678";
 IPAddress apIP(192, 168, 5, 1);
 IPAddress apMask(255, 255, 255, 0);
 // Web server
@@ -178,11 +178,11 @@ void reconn() {
 	// TODO: edit
 		// Create a random client ID
 	/*	TODO: String ---> char * change  */
-		String clientId = "test-";
-		clientId += String(random(0xffff), HEX);
+		char clientId[10] = "test-";
+		sprintf(clientId+5, "%04x", random(0xffff));
 		// Attempt to connect
-		if (client.connect(clientId.c_str())) {//, mqtt_id, mqtt_pw)) {
-	//
+		if (client.connect((const char*)clientId)) { //, (const char*)pgm_read_ptr(&mqtt_id), \
+                                                   (const char*)pgm_read_ptr(&mqtt_pw)) {
 #ifdef _D0_
 			debug.println(" connected");
 #endif
@@ -218,20 +218,6 @@ void IRAM_ATTR ap_set_callback() {
 	portEXIT_CRITICAL_ISR(&ext_itrt_mux);
 }
 #endif
-
-// Ap mode initialize
-void ap_init() {
-	wifi_scan = ON;
-	portENTER_CRITICAL(&timer_mux); // lock start
-	timer_cnt = 0;
-	portEXIT_CRITICAL(&timer_mux); // lock end
-	timerRestart(timer);
-}
-
-// Station mode initialize
-void sta_init() {
-	timerStop(timer);
-}
 
 // Send data stream in serial to MCU
 void sendToMCU(const char op_code, const uint8_t* send_data, size_t data_len) {
@@ -305,10 +291,8 @@ size_t serialEvent() {
 bool espSetMode(const uint8_t req_mode) {
 	if (req_mode & AP) { // AP & AP_STA
 		if (!setup_wifi(WIFI_MODE_APSTA)) { return false; }
-		ap_init(); // AP mode setup
 	} else if (req_mode == STA) { // STA
 		if (!setup_wifi(WIFI_MODE_STA)) { return false; } 
-		sta_init(); // Station mode setup
 	} else { return false; } // NONE
 
 	esp_mode = req_mode;
@@ -326,7 +310,6 @@ void setup() {
 	setup_gpio();
 	setup_timer();
 	setup_mqtt();
-//	setup_wifi(WIFI_MODE_STA);
 	// randomSeed(analogRead(14)); what is analog pin?
 }
 
@@ -350,16 +333,22 @@ void loop() {
 
 #ifdef _D1_
 //	debug.printf("esp: %u / mcu: %u / req: %u\n", esp_mode, mcu_mode, req_mode);
-//	WiFi.printDiag(debug);
 #endif
 
 	// ESP Mode change occur
 	if (esp_mode != req_mode) {	if(!(espSetMode(req_mode))) { goto FAIL; } }
 
+#ifdef _D1_
+//	WiFi.printDiag(debug);
+#endif
+
 	if (!(esp_mode & AP)) {
 		// Station mode Work loop START
 		if (WiFi.status() != WL_CONNECTED) {
-			wifi_conn = OFF;
+			if (wifi_conn) {
+				connect_wifi();
+				wifi_conn = OFF;
+			}
 #ifdef _D0_
 			debug.print(".");
 #endif
@@ -413,6 +402,23 @@ void loop() {
 
 FAIL:
 	delay(500);
+}
+
+void connect_wifi() {
+	wifi_config_t conf;
+	esp_wifi_get_config(WIFI_IF_STA, &conf);
+
+	const char* sta_ssid = reinterpret_cast<const char*>(conf.sta.ssid);
+	const char* sta_pw = reinterpret_cast<const char*>(conf.sta.password);
+
+	WiFi.begin(sta_ssid, sta_pw);
+
+#ifdef _D1_
+	debug.printf("ssid: %s / pw: %s\n", sta_ssid, sta_pw);
+#endif
+#ifdef _D0_
+	debug.print("Attempting WiFi connection");
+#endif
 }
 
 // Send sensor data
@@ -527,26 +533,17 @@ bool setup_wifi(wifi_mode_t mode) {
 	delay(300);
 
 	if (mode == WIFI_MODE_STA) {
-		wifi_config_t conf;
-		esp_wifi_get_config(WIFI_IF_STA, &conf);
-
-		const char* _ssid = reinterpret_cast<const char*>(conf.sta.ssid);
-		const char* _pw = reinterpret_cast<const char*>(conf.sta.password);
-
-		WiFi.begin(_ssid, _pw);
-#ifdef _D0_
-		debug.print("Attempting WiFi connection");
-#endif
+		timerStop(timer);
+		wifi_conn = ON;
 	} else if (mode == WIFI_MODE_APSTA || mode == WIFI_MODE_AP) {
 #if 0
 //		WiFi.softAPConfig(apIP, apIP, apMask);
 //		delay(500);
 #endif
 		/*
-			TODO: ap_ssid & ap_password getting
-					(smartconfig apply??)
-												*/
-		WiFi.softAP((const char*)pgm_read_ptr(&dev_ssid), (const char*)pgm_read_ptr(&dev_pw));
+			TODO: ap_ssid & ap_password getting (smartconfig apply??)
+																		*/
+		WiFi.softAP((const char*)pgm_read_ptr(&ap_ssid), (const char*)pgm_read_ptr(&ap_pw));
 		IPAddress dev_ip = WiFi.softAPIP();
 		if (!web_bind) {
 #if 0 // string reserved
@@ -564,6 +561,12 @@ bool setup_wifi(wifi_mode_t mode) {
 		debug.print("Web server IP: "); // temporary
 		debug.println(dev_ip);
 #endif
+		// Ap mode init
+		wifi_scan = ON;
+		portENTER_CRITICAL(&timer_mux); // lock start
+		timer_cnt = 0;
+		portEXIT_CRITICAL(&timer_mux); // lock end
+		timerRestart(timer);
 	} else { return res; } // Wifi off
 
 	delay(500);
