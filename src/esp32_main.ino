@@ -49,11 +49,12 @@ typedef enum {
 
 // MCU to ESP Serial OP Code
 typedef enum {
-	DATA = 0x00, // Data ack
+	TEST = 0x00, // Used to test
 	ACK  = 0x01, // Positive ack
 	REQ  = 0x02, // Request data
-	NAK  = 0xFE, // Negative ack
-	TEST = 0xFF  // Used to test
+	NAK  = 0x0E, // Negative ack
+	SENSOR = 0x10, // Sensor data 
+	IMAGE = 0x20, // Image data
 } op_code_t;
 
 // MCU to ESP Serial Data Type 
@@ -62,9 +63,8 @@ typedef enum {
 	AP        = 0x01, // AP Mode
 	STA       = 0x02, // Station Mode
 	AP_STA    = 0x03, // AP & Station Mode
-	SENSOR    = 0xF0, // Sensor data
 	MODE_MASK = 0xFC  // Not value, used to split a mode from other data	
-} req_data_t;
+} cntr_sig_t;
 static uint8_t esp_mode = NONE;
 static uint8_t mcu_mode = NONE;
 static uint8_t req_mode = STA;
@@ -72,7 +72,8 @@ static uint8_t req_mode = STA;
 // Uart Data buffer
 uint8_t serialBuff[SERIAL_BUFF_MAX_SIZE];
 uint8_t* s_data = nullptr; // Data start point
-static bool is_data = OFF;
+static bool exist_data = OFF;
+static bool add_image = OFF;
 
 // Intterrupt variable
 static volatile uint8_t timer_cnt;
@@ -110,6 +111,7 @@ const char* tp_photo PROGMEM     = "picture";
 const char* tp_video PROGMEM     = "stream";
 const char* tp_sensor PROGMEM    = "data";
 const uint8_t sub_tp_cnt = sizeof(sub_tps)/sizeof(const char*);
+static bool mqtt_conn = false;
 //WiFiClient espClient;
 WiFiClientSecure espClient;
 MQTT client(espClient, callback);
@@ -169,20 +171,20 @@ SCAN_END:
 }
 
 // Try to reconnect to the MQTT server 
-void reconn() {
+bool reconn() {
 	// Loop until we're reconnected
 	while (!client.connected()) {
 #ifdef _D0_
 		debug.print("Attempting MQTT connection...");
 #endif
-	// TODO: edit
+		// TODO: edit
 		// Create a random client ID
-	/*	TODO: String ---> char * change  */
+		/*	TODO: String ---> char * change  */
 		char clientId[10] = "test-";
 		sprintf(clientId+5, "%04x", random(0xffff));
 		// Attempt to connect
 		if (client.connect((const char*)clientId)) { //, (const char*)pgm_read_ptr(&mqtt_id), \
-                                                   (const char*)pgm_read_ptr(&mqtt_pw)) {
+			(const char*)pgm_read_ptr(&mqtt_pw)) {
 #ifdef _D0_
 			debug.println(" connected");
 #endif
@@ -190,14 +192,17 @@ void reconn() {
 			//client.publish(topic_auth, "This is an auth message for the reconnection.");
 			// ... and resubscribe
 			client.Subscribe(sub_tps, sub_tp_cnt);
+			mqtt_conn = true;
 		} else {
 #ifdef _D0_
 			debug.print("failed, rc=");
-			debug.print(client.state());
+			debug.println(client.state());
 #endif
-			return;
+			return (mqtt_conn = false);
 		}
 	}
+
+	return true;
 }
 
 // Timer interrupt service rootin
@@ -254,17 +259,22 @@ size_t parseData() {
 
 	s_data = p_data;
 
-	if (!_op_code) { is_data = ON; } // DATA
-	else if (_op_code == REQ) { // REQ
-		if (!(*s_data & MODE_MASK)) { req_mode = *s_data; }
-	} else if (_op_code == ACK) { // ACK
-		if (!(*s_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
-		else { /* Data ACK */ }
-	} else { /* NAK */
-#ifdef __TEST__
-		if (_op_code == TEST) { adjust_img(*(s_data++), *s_data); }
-#endif
+	if (_op_code & 0xF0) { // Data type
+		if (mqtt_conn) {
+			exist_data = ON;
+			add_image = (_op_code & IMAGE)? ON : OFF;
+		}
+	} else if (_op_code & 0x0F) { // Command
+		if (_op_code == ACK) { // ACK
+			if (!(*s_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
+			else { /* Data ACK */ }
+		} else if (_op_code == REQ) {
+			if (!(*s_data & MODE_MASK)) { req_mode = *s_data; }
+		} else if (_op_code == NAK) { /* NAK */ }
 	}
+#ifdef __TEST__
+	else { adjust_img(*(s_data++), *s_data); }
+#endif
 
 	return _data_len;
 }
@@ -322,10 +332,14 @@ void loop() {
 #endif
 
 	size_t pub_len = serialEvent();
-	if (is_data) {
+	if (exist_data) {
 		sendToMCU(ACK, SENSOR);
-		mqtt_err_t err = send_sensor(s_data, pub_len);
-		is_data = OFF;
+		send_sensor(s_data, pub_len);
+		if (add_image) {
+			send_photo();
+			add_image = OFF;
+		}
+		exist_data = OFF;
 	}
 
 #ifdef _D1_
@@ -370,7 +384,8 @@ void loop() {
 #endif
 		}
 
-		if (!client.connected()) { reconn(); }
+		if(!reconn()) { goto FAIL; }
+		
 		// To process incoming messages to send publish data and to make a refresh of the connection
 		client.loop(); 
 		// Station mode work loop END
@@ -503,7 +518,6 @@ mqtt_err_t send_video() {
 void callback(char* topic, byte* payload, unsigned int length) {
 	if (!memcmp((const char*)topic, "photo", 5)) { send_photo(); }
 	else if (!memcmp((const char*)topic, "video", 5)) { send_video(); }
-	else if (!memcmp((const char*)topic, "sensor", 6)) { sendToMCU(REQ, SENSOR); }
 }
 
 // Setup uart serial

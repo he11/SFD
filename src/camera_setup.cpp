@@ -46,9 +46,10 @@ void setup_camera() {
 #ifdef _D0_
 		debug.printf("Camera init failed with error 0x%x", err);
 #endif
-		return;
-#if 0 // Reboot???
+#if 1 // Reboot
 		ESP.restart();
+#else
+		return;
 #endif
 	}
 }

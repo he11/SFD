@@ -74,11 +74,11 @@ public:
 	 *   "uuid": 8-4-4-4-12(string),	# RFC4122 version.1 TimeNode base
 	 *   "date": string,				# Publication date
 	 *	 "data": {						# Sensor Data
-	 *	  "dust" : float
-	 *	  "fire" : bool
 	 *	  "gas" : bool
-	 *	  "motion" : list[bool, bool]
 	 *	  "smoke" : bool
+	 *	  "fire" : bool
+	 *	  "motion" : list[bool, bool]
+	 *	  "dust" : float
 	 *	  "temp" : float				# Temperature
 	 *	}
 	 * }

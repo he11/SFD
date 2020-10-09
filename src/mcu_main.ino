@@ -4,24 +4,30 @@
 #ifdef __DEBUG__
 #define debug Serial
 #endif
+static bool f_val, abn_val, p_val; 
+
+// State define
+typedef enum {OFF, ON} sw_state_t;
 
 // Timer
-HardwareTimer* Timer1;
-static bool timerFlag = true;
-static volatile uint8_t secCnt = 0, minCnt = 0;
+#define ALARM_DURATION_TIME     3 /*******************/
+#define ABNORMAL_TRANSFER_DELAY 1 /* based in minute */
+#define NORMAL_TRANSFER_DELAY  10 /*******************/
+HardwareTimer* periodTimer;
+HardwareTimer* alarmTimer;
+static volatile bool delay_start = OFF, delay_end = OFF;
+static volatile bool alarm_start = OFF, alarm_end = OFF;
+static volatile uint8_t delay_time;
+static bool alarm_on = OFF;
 
 // SoftwareSerial
 #include <SoftwareSerial.h>
 SoftwareSerial WifiSerial(10, 9); // RX, TX
 
-// Sensor data collection completed
-static bool collected = false;
-
 // SMOKE Sensor
 #include <Wire.h>
 #include "MAX30105.h"
-volatile int smoke_val[3];
-typedef enum { R, IR, G } smoke_t;
+volatile int smoke;
 
 // JSON Encode & Decode
 #include <ArduinoJson.h>
@@ -34,6 +40,7 @@ static uint8_t integrated[JSON_DATA_BUFF_MAX_SIZE];
 static uint8_t serialBuff[SERIAL_BUFF_MAX_SIZE];
 static uint8_t* s_data = nullptr; // Data start point
 static volatile bool received = false;
+//static volatile bool requested = false;
 static uint8_t req_data;
 
 // Data start & end signal
@@ -44,10 +51,12 @@ typedef enum {
 
 // MCU to ESP Serial OP Code
 typedef enum {
-	DATA = 0x00, // Data ack
+	TEST = 0x00, // Used to test
 	ACK  = 0x01, // Positive ack
 	REQ  = 0x02, // Request data
-	NAK  = 0xFE  // Negative ack
+	NAK  = 0x0E, // Negative ack
+	SENSOR = 0x10, // Sensor data 
+	IMAGE = 0x20, // Image data
 } op_code_t;
 
 // MCU to ESP Serial Data Type 
@@ -56,9 +65,8 @@ typedef enum {
 	AP        = 0x01, // AP Mode
 	STA       = 0x02, // Station Mode
 	AP_STA    = 0x03, // AP & Station Mode
-	SENSOR    = 0xF0, // Sensor data
 	MODE_MASK = 0xFC  // Not value, used to split a mode from other data
-} req_data_t;
+} cntr_sig_t;
 static uint8_t mcu_mode = NONE;
 static uint8_t esp_mode = NONE;
 static uint8_t req_mode = NONE;
@@ -70,22 +78,22 @@ MAX30105 particleSensor;
 #define RLED D6 // PB1
 #define MODESW D2 // PA12
 #define TESTSW D3 // PB0
-static volatile bool last=HIGH, curr=HIGH, ModeFlag = LOW; 
+static volatile bool last=HIGH, curr=HIGH, ModeFlag = LOW;
+static volatile bool test_on = OFF;
 //boolean last=LOW, curr=LOW, ModeFlag=false;
 
 // Fire detect
 #define DANGER_ALARM_MAX_CNT 5
 uint8_t alarm_cnt=0;
-//bool fire_detect = false;
+bool fire_detected = false;
 
 // GAS Sensor
 #define GAS_PIN A5 // PA6
-volatile int gas_volume;
+volatile int gas;
 // #define GAS_EN D12 // PB4, unused
 
 // NTC Thermistor : NTC-103F397F (SAMKYOUNG Ceramic)
 #define THERMISTOR_PIN A1 // PA1
-volatile float Tc = 0;
 
 // PIR Sensor
 volatile bool pir_val[2];
@@ -97,7 +105,6 @@ volatile bool pir_val[2];
 // Dust Sensor Interface
 #define DUST_PIN A0 // PA0
 #define DUST_EN A6 // PA7
-volatile float dust_density = 0;
 
 #if 0 // not used
 // Variables will change:
@@ -114,28 +121,33 @@ unsigned long debounceDelay = 50;    // the debounce time; increase if the outpu
 //#define toESP WifiSerial
 
 // Function pre-define
-bool parseData();
+size_t parseData();
 void sendToESP(const char op_code, const uint8_t* send_data, size_t data_len);
 void sendToESP(const char op_code, const char send_data);
-void req_process(const uint8_t cur_mode, const uint8_t req_data);
 size_t dataToJson();
 bool mcuSetMode(const uint8_t req_mode);
 void ap_init(); 
 void sta_init(); 
 void checkModeSw();
 boolean debounce(boolean last);
-void timerTask();
-bool checkSensor();
-void runFunc();
-void checkPir(); 
-void checkSmoke();
-void checkGas();
-void readTemp();
-void readDust();
+void period_timer();
+void alarm_timer();
+bool checkAbnormal();
+bool checkPir(); 
+int checkSmoke();
+int checkGas();
+float readTemp();
+float readDust();
 void setup_gpio();
 void setup_timer();
 void alarm_sign();
+void onTestSw();
+void operation_test(uint8_t value);
 
+
+void onTestSw() {
+	test_on = ON;
+}
 
 void setup_gpio() {
 	// PIR Sensor
@@ -150,14 +162,22 @@ void setup_gpio() {
 
 	// AP <-> Station Mode Switch 
 	pinMode(MODESW, INPUT);
-	// pinMode(TESTSW, INPUT);
+
+	// TEST Switch
+	pinMode(TESTSW, INPUT);
+	attachInterrupt(digitalPinToInterrupt(TESTSW), onTestSw, FALLING);
 }
 
 void setup_timer() {
-	TIM_TypeDef* ins = TIM1;
-	Timer1 = new HardwareTimer(ins);
-	Timer1->setOverflow(1, HERTZ_FORMAT); // 1HZ
-	Timer1->attachInterrupt(timerTask);
+	TIM_TypeDef* ins1 = TIM1;
+	periodTimer = new HardwareTimer(ins1);
+	periodTimer->setOverflow(1, HERTZ_FORMAT); // 1HZ
+	periodTimer->attachInterrupt(period_timer);
+
+	TIM_TypeDef* ins2 = TIM2;
+	alarmTimer = new HardwareTimer(ins2);
+	alarmTimer->setOverflow(1, HERTZ_FORMAT); // 1HZ
+	alarmTimer->attachInterrupt(alarm_timer);
 }
 
 void setup()
@@ -190,9 +210,8 @@ void loop()
 {
 	// Send the sensor data requested to MQTT server
 	if (received == true) {
-		bool requested = parseData();
-		if (requested) { req_process(mcu_mode, req_data); }
-		memset(serialBuff, 0, SERIAL_BUFF_MAX_SIZE);
+		size_t parse_len = parseData();
+		//if (requested) { /* Data processing */ requested = false; } // Reserved
 		received = false;
 	}
 
@@ -217,43 +236,74 @@ void loop()
 	digitalWrite(GLED, !(mcu_mode & AP));
 	
 	if (mcu_mode == STA) {
-		bool abnormal = checkSensor();
-		// Current circumstance may be emergency
-		// therefore, send alarm signal to App of user's smartphone
-		if (abnormal == true) {
-			runFunc();
+		// Device state diagnosis
+		if (test_on) {
+			alarmTimer->pause();
+			//TODO: Alarm On
+			alarm_sign(); // test
+#ifdef __DEBUG__
+			debug.println("alarm on!!!!");
+#endif
+			alarm_on = ON;
+			alarm_start = ON;
+			alarmTimer->resume();
 
-			if ((gas_volume >= 1000) && (smoke_val[R] >= 10000)) {
-				if (pir_val[0] || pir_val[1]) { // ???
-					/* TODO: Send Emergency alarm signal */
-				}
-				if (alarm_cnt < DANGER_ALARM_MAX_CNT) {
-					/* TODO: send alarm to App */
+			size_t json_len = dataToJson();
+			sendToESP((SENSOR|IMAGE), integrated, json_len);
 
-					// Send emergency data to MQTT server
-					size_t json_len = dataToJson();
-					sendToESP(DATA, integrated, json_len);
+			test_on = OFF;
+		}
 
-					alarm_cnt++;
-				}
-				alarm_sign();
-			} else {
-				alarm_cnt = 0;
+		bool abnormal = checkAbnormal();
+#ifdef __DEBUG__
+		bool pir_detected = p_val;
+		abnormal = abn_val;
+		fire_detected = f_val;
+#endif
+		uint8_t curr_delay = (abnormal)? ABNORMAL_TRANSFER_DELAY : NORMAL_TRANSFER_DELAY;
+
+		if (delay_time != curr_delay) {
+			delay_end = ON;
+			delay_time = curr_delay;
+		}
+#ifdef __DEBUG__
+		if ((abnormal || pir_detected) && delay_end) {
+#else
+		if ((abnormal || checkPir()) && delay_end) {
+#endif
+#ifdef __DEBUG__
+			debug.println("send on!!!!");
+#endif
+			periodTimer->pause();
+			delay_end = OFF;
+
+			// Current circumstance may be emergency
+			if (abnormal && !alarm_on) {
+				//TODO: Alarm On
+				alarm_sign(); // test
+#ifdef __DEBUG__
+				debug.println("alarm on!!!!");
+#endif
+				alarm_on = ON;
+				alarm_start = ON;
+				alarmTimer->resume();
 			}
 
-			abnormal = false;
+			uint8_t _op_code = SENSOR;
+			if (fire_detected) { _op_code |= IMAGE; }
+
+			size_t json_len = dataToJson();
+			sendToESP(_op_code, integrated, json_len);
+
+			delay_start = ON;
+			periodTimer->resume();
 		}
 
-		if(minCnt == 15) { // Get sensor data per 15 minute
-			timerFlag = true;
-			minCnt = 0;
-		}
-
-		if (timerFlag)
-		{
-			alarm_sign();
-			runFunc();
-			timerFlag = false;
+		if (alarm_on && alarm_end) {
+			alarmTimer->pause();
+			alarm_end = OFF;
+			// TODO: Alarm Off
+			alarm_on = OFF;
 		}
 		// Station mode end
 	} else if (mcu_mode & AP) {
@@ -264,6 +314,12 @@ FAIL:
 	delay(500);
 }
 
+void operation_test(uint8_t value) {
+	abn_val = value & 0x1;
+	p_val = value & 0x2;
+	f_val = value & 0x4;
+}
+
 void alarm_sign() {
 	digitalWrite(RLED, LOW);   // Turn the red LED on
 	delay(350);
@@ -271,14 +327,11 @@ void alarm_sign() {
 }
 
 void ap_init() {
-	Timer1->pause();
-	secCnt = 0;
-	minCnt = 0;
-	timerFlag = true;
+	periodTimer->pause();
+	alarmTimer->pause();
 }
 
 void sta_init() {
-	Timer1->resume();
 }
 
 // MCU mode setup
@@ -294,19 +347,11 @@ bool mcuSetMode(const uint8_t req_mode) {
 	return true;
 }
 
-// Process requested data
-void req_process(const uint8_t cur_mode, const uint8_t req_data) {
-	if ((cur_mode == STA) && (req_data == SENSOR)) {
-		if (!collected) { runFunc(); }
-		size_t json_len = dataToJson();
-		sendToESP(DATA, integrated, json_len);
-	} 
-}
-
 // Received request for sensor data from MQTT server
 void serialEvent() {
 	size_t cnt = 0;
 
+	memset(serialBuff, 0, SERIAL_BUFF_MAX_SIZE);
 	while (toESP.available() > 0) {
 		char get_data = toESP.read();
 		serialBuff[cnt++] = get_data;
@@ -317,31 +362,32 @@ void serialEvent() {
 	}
 }
 
-bool parseData() {
+size_t parseData() {
 	size_t cnt = 0;
-	bool _requested = false;
 
 	uint8_t* p_data = serialBuff;
 	// Start sign search
 	while (*(p_data++) != STX)
-		if ((cnt++) >= SERIAL_BUFF_MAX_SIZE) { return false; }
+		if ((cnt++) >= SERIAL_BUFF_MAX_SIZE) { return 0; }
 
 	uint8_t _op_code = *(p_data++);
 	size_t _data_len = *(p_data++) << 8 | *(p_data++);
-	if (p_data[_data_len] != ETX) { return false; }
+	if (p_data[_data_len] != ETX) { return 0; }
 
 	s_data = p_data;
 
-	if (_op_code == REQ) { // REQ
-		req_data = *s_data;
-		_requested = true;
-	} else if (_op_code == ACK) { // ACK
-		if (!(*s_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
-		else { /* Data ACK */ }
-	} else if (_op_code == NAK) { /* NAK */ }
-	else { /* DATA */ }
+	if (_op_code & 0x0F) { // Command
+		if (_op_code == ACK) { // ACK
+			if (!(*s_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
+			else { /* Data ACK */ }
+		} else if (_op_code == REQ) {
+			//req_data = *s_data;
+			//requested = true;
+		} else if (_op_code == NAK) { /* NAK */ }
+	} else if (_op_code & 0xF0) { /* Data type */ }
+	else { operation_test(*s_data); } // TEST
 
-	return _requested;
+	return _data_len;
 }
 
 // Send data stream in serial to ESP32
@@ -370,14 +416,15 @@ void sendToESP(const char op_code, const char send_data) {
 // Send sensor data to ESP32
 size_t dataToJson() {
 	StaticJsonDocument<DATA_DOC_CAPACITY> Data;
-	Data["dust"] = dust_density;
-	Data["fire"] = (gas_volume >= 1000) && (smoke_val[R] >= 10000);
-	Data["gas"] = gas_volume >= 1000;
+	Data["gas"] = checkGas() >= 100;
+	Data["smoke"] = checkSmoke() >= 10000;
+	Data["fire"] = Data["gas"] && Data["smoke"];
+	checkPir();
 	JsonArray Motion = Data.createNestedArray("motion");
 	Motion.add(pir_val[0]);
 	Motion.add(pir_val[1]);
-	Data["smoke"] = smoke_val[R] >= 10000;
-	Data["temp"] = Tc;
+	Data["dust"] = readDust();
+	Data["temp"] = readTemp();
 
 	memset(integrated, 0, JSON_DATA_BUFF_MAX_SIZE);
 	return serializeJson(Data, integrated);
@@ -405,82 +452,101 @@ boolean debounce(boolean last)
 	return curr;
 }
 
-// Timer interrupt
-void timerTask()
+// Period timer isr
+void period_timer()
 {
-	++secCnt;
-	if (secCnt == 60) {
-		++minCnt;
+	static uint8_t secCnt, minCnt;
+
+	if (delay_start) {
+		secCnt = 0;
+		minCnt = 0;
+		delay_start = OFF;
+	}
+
+	if (++secCnt == 60) {
+		if (++minCnt >= delay_time) {
+			delay_end = ON;
+			minCnt = 0;
+		}
 		secCnt = 0;
 	}
 }
 
-bool checkSensor()
+// Alarm timer isr
+void alarm_timer()
 {
-	pir_val[0] = digitalRead(PIR_PIN1);
-	pir_val[1] = digitalRead(PIR_PIN2);
-	smoke_val[R] = particleSensor.getRed();
-	gas_volume = analogRead(GAS_PIN);
-#if 0
-	bool _abnormal = (pir_val[0] == 1 || pir_val[1] == 1 || \ 
-                        smoke_val[R] >= 10000 || gas_volume >= 1000); // ??? exactly
-#else
-	bool _abnormal = (gas_volume >= 1000) || (smoke_val[R] >= 10000);
-#endif
+	static uint8_t secCnt, minCnt;
 
-	return _abnormal? true : false;
+	if (alarm_start) {
+		secCnt = 0;
+		minCnt = 0;
+		alarm_start = OFF;
+	}
+
+	if (++secCnt == 60) {
+		if (++minCnt >= ALARM_DURATION_TIME) {
+			alarm_end = ON;
+			minCnt = 0;
+		}
+		secCnt = 0;
+	}
 }
 
-void runFunc()
+
+bool checkAbnormal()
 {
-	checkPir();
-	checkSmoke();
-	checkGas();
-	readTemp();
-	readDust();
-	collected = true;
+	smoke = checkSmoke(); 
+	gas = checkGas();
+	fire_detected = gas >= 100 && smoke >= 10000;
+
+	return (gas >= 100 || smoke >= 10000)? true : false;
 }
 
 // Check PIR1, PIR2
-void checkPir() 
+bool checkPir() 
 {
 	pir_val[0] = digitalRead(PIR_PIN1);
 	pir_val[1] = digitalRead(PIR_PIN2);
 #ifdef __DEBUG__
+	debug.print("pir1[");
 	debug.print(pir_val[0]);
+	debug.print("] pir2[");
 	debug.print(pir_val[1]);
-#endif
-}
-
-void checkSmoke()
-{
-	smoke_val[R] = particleSensor.getRed();
-	smoke_val[IR] = particleSensor.getIR();
-	smoke_val[G] = particleSensor.getGreen();
-#ifdef __DEBUG__
-	debug.print(F(" R["));
-	debug.print(smoke_val[R]);
-	debug.print(F("] IR["));
-	debug.print(smoke_val[IR]);
-	debug.print(F("] G["));
-	debug.print(smoke_val[G]);
-	debug.print(F("]"));
+	debug.print("]");
 	debug.println();
 #endif
+
+	return (pir_val[0] | pir_val[1]);
 }
 
-void checkGas()
+int checkSmoke()
 {
-	gas_volume = analogRead(GAS_PIN);
-#ifdef __DEBUG__
-	debug.print(F("GAS["));
+	int smoke_red = particleSensor.getRed();
+	int smoke_infrared = particleSensor.getIR();
+	int smoke_green = particleSensor.getGreen();
+	int smoke_avg = (smoke_red + smoke_infrared + smoke_green) / 3;
+#if 0 //def __DEBUG__
+	debug.printf("R[%d] IR[%d] G[%d] SMOKE[%d]\n",
+                  smoke_red, smoke_infrared, smoke_green, smoke_avg);
+#endif
+
+	return smoke_avg;
+}
+
+int checkGas()
+{
+	int gas_volume = analogRead(GAS_PIN);
+#if 0 //def __DEBUG__
+	debug.print("GAS[");
 	debug.print(gas_volume);  
-	debug.print(F("]"));
+	debug.print("]");
 	debug.println();
 #endif
+
+	return gas_volume;
 }
 
-void readTemp()
+float readTemp()
 {
 	int Vo = analogRead(THERMISTOR_PIN);  
 	float R1 = 10000;
@@ -488,13 +554,15 @@ void readTemp()
 	float logR2 = log(R2);  
 	float c1 = 1.009249522e-03, c2 = 2.378405444e-04, c3 = 2.019202697e-07;
 	float T = (1.0 / (c1 + c2*logR2 + c3*logR2*logR2*logR2));  
-	Tc = T - 273.15;  // valid value
-#ifdef __DEBUG__
-	debug.print(F("Temperature: "));
+	float Tc = T - 273.15;  // valid value
+#if 0 //def __DEBUG__
+	debug.print("Temperature: ");
 	debug.print(Tc);  
-	debug.println(F(" C"));
+	debug.println(" C");
 	debug.println();
 #endif
+
+	return Tc;
 }
 #if 0 // not used
 // DUST Sensor
@@ -512,7 +580,7 @@ float get_dust_density(float voltage)
 	return dust;
 }
 #endif
-void readDust()
+float readDust()
 {
 	digitalWrite(DUST_EN, LOW);
 	delayMicroseconds(280);
@@ -522,17 +590,17 @@ void readDust()
 	digitalWrite(DUST_EN, HIGH);
 	delayMicroseconds(9680);
 
-	//delay(3000); // ??? what means?
-	delay(1000);
 	// 미세 먼지 밀도
-	dust_density = (0.17*sensor_voltage-0.1)*1000;  // converter voltage to dust ub/m3
-#ifdef __DEBUG__
-	debug.print(F("DUST(ug/m3) "));
+	float dust_density = (0.17*sensor_voltage-0.1)*1000;  // converter voltage to dust ub/m3
+#if 0 //def __DEBUG__
+	debug.print("DUST(ug/m3) ");
 //	debug.print(Vo_value);  
-//	debug.print(F(" "));
+//	debug.print(" ");
 //	debug.print(sensor_voltage);  
-//	debug.print(F(" "));
+//	debug.print(" ");
 	debug.print(dust_density);  // valid value
 	debug.println();
 #endif
+
+	return dust_density;
 }
