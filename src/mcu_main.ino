@@ -4,10 +4,13 @@
 #ifdef __DEBUG__
 #define debug Serial
 #endif
-static bool f_val, abn_val, p_val; 
+static bool f_val, abn_val, p_val;
 
 // State define
 typedef enum {OFF, ON} sw_state_t;
+
+// ESP boot state
+static bool esp_boot = OFF;
 
 // Timer
 #define ALARM_DURATION_TIME     3 /*******************/
@@ -65,11 +68,14 @@ typedef enum {
 	AP        = 0x01, // AP Mode
 	STA       = 0x02, // Station Mode
 	AP_STA    = 0x03, // AP & Station Mode
-	MODE_MASK = 0xFC  // Not value, used to split a mode from other data
+	MODE_MASK = 0xFC, // Not value, used to split a mode from other data
+	BOOT      = 0xFF
 } cntr_sig_t;
 static uint8_t mcu_mode = NONE;
 static uint8_t esp_mode = NONE;
-static uint8_t req_mode = NONE;
+static uint8_t req_mode = STA;
+#define MODE_REQ_DELAY(n) ((n)*(60));
+static uint16_t retry_delay = ON;
 
 MAX30105 particleSensor;
 
@@ -78,7 +84,7 @@ MAX30105 particleSensor;
 #define RLED D6 // PB1
 #define MODESW D2 // PA12
 #define TESTSW D3 // PB0
-static volatile bool last=HIGH, curr=HIGH, ModeFlag = LOW;
+static volatile bool last=HIGH, curr=HIGH, ModeFlag = OFF;
 static volatile bool test_on = OFF;
 //boolean last=LOW, curr=LOW, ModeFlag=false;
 
@@ -208,32 +214,40 @@ void setup()
 
 void loop()
 {
-	// Send the sensor data requested to MQTT server
 	if (received == true) {
 		size_t parse_len = parseData();
 		//if (requested) { /* Data processing */ requested = false; } // Reserved
 		received = false;
 	}
 
+	if (!esp_boot) { goto WAIT; }
+
 #ifdef __DEBUG__
 //	debug.printf("mcu: %u / esp: %u / req: %u\n", mcu_mode, esp_mode, req_mode);
 #endif
 
-	if (mcu_mode != req_mode) { if(!(mcuSetMode(req_mode))) { goto FAIL; } }
-
 	checkModeSw();
-	if (ModeFlag == HIGH) {
-		uint8_t chg_mode = (mcu_mode|STA)^AP;
-		sendToESP(REQ, chg_mode);
+	if (ModeFlag) {
+		req_mode = (mcu_mode|STA)^AP;
 		digitalWrite(GLED, LOW);  
 		delay(250);
 		digitalWrite(GLED, HIGH);
 		delay(250);
-		ModeFlag = LOW;
+		retry_delay = ON;
+		ModeFlag = OFF;
 	}
 
 	// Display current mode state
 	digitalWrite(GLED, !(mcu_mode & AP));
+
+	if ((mcu_mode != req_mode)) {
+		if (!(--retry_delay)) {
+			sendToESP(REQ, req_mode);
+			retry_delay = MODE_REQ_DELAY(3);
+		}
+		delay(500);
+		goto WAIT; // Safeguard
+	}
 	
 	if (mcu_mode == STA) {
 		// Device state diagnosis
@@ -306,11 +320,9 @@ void loop()
 			alarm_on = OFF;
 		}
 		// Station mode end
-	} else if (mcu_mode & AP) {
-		// AP mode end
-	}
+	} else { /* NONE & AP mode */ }
 
-FAIL:
+WAIT:
 	delay(500);
 }
 
@@ -329,6 +341,10 @@ void alarm_sign() {
 void ap_init() {
 	periodTimer->pause();
 	alarmTimer->pause();
+	delay_end = ON;
+	// TODO: Hardware Alarm Off
+	alarm_on = OFF;
+	alarm_end = OFF;
 }
 
 void sta_init() {
@@ -378,10 +394,15 @@ size_t parseData() {
 
 	if (_op_code & 0x0F) { // Command
 		if (_op_code == ACK) { // ACK
-			if (!(*s_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
+			uint8_t ack_data = *s_data;
+			if (!(ack_data & MODE_MASK)) { mcuSetMode(*s_data); } // Mode(AP/Station) ACK
 			else { /* Data ACK */ }
 		} else if (_op_code == REQ) {
-			//req_data = *s_data;
+			req_data = *s_data;
+			if (req_data == BOOT) {
+				esp_boot = ON;
+				sendToESP(ACK, BOOT);
+			}
 			//requested = true;
 		} else if (_op_code == NAK) { /* NAK */ }
 	} else if (_op_code & 0xF0) { /* Data type */ }
@@ -434,7 +455,7 @@ void checkModeSw()
 {
 	curr=debounce(last);
 	if (last == HIGH && curr == LOW) {
-		ModeFlag = HIGH;
+		ModeFlag = ON;
 	}
 	last=curr;
 }

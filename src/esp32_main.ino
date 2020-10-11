@@ -41,6 +41,9 @@ typedef enum {
 	ON  = 1
 } status_t;
 
+// MCU boot state
+static bool mcu_boot = OFF;
+
 // Data start & end signal
 typedef enum {
 	STX = 0xBE, // Start data
@@ -63,11 +66,12 @@ typedef enum {
 	AP        = 0x01, // AP Mode
 	STA       = 0x02, // Station Mode
 	AP_STA    = 0x03, // AP & Station Mode
-	MODE_MASK = 0xFC  // Not value, used to split a mode from other data	
+	MODE_MASK = 0xFC, // Not value, used to split a mode from other data
+	BOOT      = 0xFF
 } cntr_sig_t;
 static uint8_t esp_mode = NONE;
 static uint8_t mcu_mode = NONE;
-static uint8_t req_mode = STA;
+static uint8_t req_mode = NONE;
 
 // Uart Data buffer
 uint8_t serialBuff[SERIAL_BUFF_MAX_SIZE];
@@ -266,7 +270,9 @@ size_t parseData() {
 		}
 	} else if (_op_code & 0x0F) { // Command
 		if (_op_code == ACK) { // ACK
-			if (!(*s_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
+			uint8_t ack_data = *s_data;
+			if (!(ack_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
+			else if (ack_data == BOOT) { mcu_boot = ON; }
 			else { /* Data ACK */ }
 		} else if (_op_code == REQ) {
 			if (!(*s_data & MODE_MASK)) { req_mode = *s_data; }
@@ -330,8 +336,14 @@ void loop() {
 		portEXIT_CRITICAL_ISR(&ext_itrt_mux);
 	}
 #endif
-
 	size_t pub_len = serialEvent();
+
+	if (!mcu_boot) {
+		sendToMCU(REQ, BOOT);
+		delay(500);
+		goto FAIL;
+	}
+
 	if (exist_data) {
 		sendToMCU(ACK, SENSOR);
 		send_sensor(s_data, pub_len);
@@ -353,7 +365,7 @@ void loop() {
 //	WiFi.printDiag(debug);
 #endif
 
-	if (!(esp_mode & AP)) {
+	if (esp_mode == STA) {
 		// Station mode Work loop START
 		if (WiFi.status() != WL_CONNECTED) {
 			if (wifi_conn) {
@@ -389,7 +401,7 @@ void loop() {
 		// To process incoming messages to send publish data and to make a refresh of the connection
 		client.loop(); 
 		// Station mode work loop END
-	} else {
+	} else if (esp_mode & AP) {
 #ifdef _D1_
 //		client.freeMemSize(__func__, __LINE__);
 #endif
@@ -573,6 +585,7 @@ bool setup_wifi(wifi_mode_t mode) {
 		debug.println(dev_ip);
 #endif
 		// Ap mode init
+		mqtt_conn = false;
 		wifi_scan = ON;
 		portENTER_CRITICAL(&timer_mux); // lock start
 		timer_cnt = 0;
