@@ -1,10 +1,13 @@
 /* SmartFireSensor R1 */
 // Debugging
 //#define __DEBUG__
+//#define __TEST__
 #ifdef __DEBUG__
 #define debug Serial
 #endif
+#ifdef __TEST__
 static bool f_val, abn_val, p_val;
+#endif
 
 // State define
 typedef enum {OFF, ON} sw_state_t;
@@ -88,9 +91,10 @@ static volatile bool last=HIGH, curr=HIGH, ModeFlag = OFF;
 static volatile bool test_on = OFF;
 //boolean last=LOW, curr=LOW, ModeFlag=false;
 
+// Alarm
+#define EMERGENCY_ALARM D10
+
 // Fire detect
-#define DANGER_ALARM_MAX_CNT 5
-uint8_t alarm_cnt=0;
 bool fire_detected = false;
 
 // GAS Sensor
@@ -146,7 +150,7 @@ float readTemp();
 float readDust();
 void setup_gpio();
 void setup_timer();
-void alarm_sign();
+void alarm_sign(bool state);
 void onTestSw();
 void operation_test(uint8_t value);
 
@@ -253,8 +257,8 @@ void loop()
 		// Device state diagnosis
 		if (test_on) {
 			alarmTimer->pause();
-			//TODO: Alarm On
-			alarm_sign(); // test
+			// Alarm On
+			digitalWrite(EMERGENCY_ALARM, ON);
 #ifdef __DEBUG__
 			debug.println("alarm on!!!!");
 #endif
@@ -269,7 +273,8 @@ void loop()
 		}
 
 		bool abnormal = checkAbnormal();
-#ifdef __DEBUG__
+		alarm_sign(abnormal);
+#ifdef __TEST__
 		bool pir_detected = p_val;
 		abnormal = abn_val;
 		fire_detected = f_val;
@@ -280,7 +285,7 @@ void loop()
 			delay_end = ON;
 			delay_time = curr_delay;
 		}
-#ifdef __DEBUG__
+#ifdef __TEST__
 		if ((abnormal || pir_detected) && delay_end) {
 #else
 		if ((abnormal || checkPir()) && delay_end) {
@@ -293,8 +298,8 @@ void loop()
 
 			// Current circumstance may be emergency
 			if (abnormal && !alarm_on) {
-				//TODO: Alarm On
-				alarm_sign(); // test
+				// Alarm On
+				digitalWrite(EMERGENCY_ALARM, ON);
 #ifdef __DEBUG__
 				debug.println("alarm on!!!!");
 #endif
@@ -316,7 +321,8 @@ void loop()
 		if (alarm_on && alarm_end) {
 			alarmTimer->pause();
 			alarm_end = OFF;
-			// TODO: Alarm Off
+			// Alarm Off
+			digitalWrite(EMERGENCY_ALARM, OFF);
 			alarm_on = OFF;
 		}
 		// Station mode end
@@ -326,23 +332,27 @@ WAIT:
 	delay(500);
 }
 
+#ifdef __TEST__
 void operation_test(uint8_t value) {
 	abn_val = value & 0x1;
 	p_val = value & 0x2;
 	f_val = value & 0x4;
 }
+#endif
 
-void alarm_sign() {
-	digitalWrite(RLED, LOW);   // Turn the red LED on
-	delay(350);
-	digitalWrite(RLED, HIGH);   // Turn the red LED off
+void alarm_sign(bool state) {
+	static bool toggle = HIGH;
+	toggle = (state)? !toggle : HIGH;
+	digitalWrite(RLED, toggle);   // Red LED Toggle
 }
 
 void ap_init() {
 	periodTimer->pause();
 	alarmTimer->pause();
 	delay_end = ON;
-	// TODO: Hardware Alarm Off
+	// Alarm Off
+	digitalWrite(EMERGENCY_ALARM, OFF);
+	alarm_sign(OFF);
 	alarm_on = OFF;
 	alarm_end = OFF;
 }
@@ -395,7 +405,7 @@ size_t parseData() {
 	if (_op_code & 0x0F) { // Command
 		if (_op_code == ACK) { // ACK
 			uint8_t ack_data = *s_data;
-			if (!(ack_data & MODE_MASK)) { mcuSetMode(*s_data); } // Mode(AP/Station) ACK
+			if (!(ack_data & MODE_MASK) && (ack_data == req_mode)) { mcuSetMode(ack_data); } // Mode(AP/Station) ACK
 			else { /* Data ACK */ }
 		} else if (_op_code == REQ) {
 			req_data = *s_data;
@@ -406,7 +416,9 @@ size_t parseData() {
 			//requested = true;
 		} else if (_op_code == NAK) { /* NAK */ }
 	} else if (_op_code & 0xF0) { /* Data type */ }
+#ifdef __TEST__
 	else { operation_test(*s_data); } // TEST
+#endif
 
 	return _data_len;
 }
