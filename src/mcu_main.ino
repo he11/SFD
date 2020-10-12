@@ -33,7 +33,8 @@ SoftwareSerial WifiSerial(10, 9); // RX, TX
 // SMOKE Sensor
 #include <Wire.h>
 #include "MAX30105.h"
-volatile int smoke;
+//volatile int smoke;
+volatile bool smoke;
 
 // JSON Encode & Decode
 #include <ArduinoJson.h>
@@ -99,7 +100,8 @@ bool fire_detected = false;
 
 // GAS Sensor
 #define GAS_PIN A5 // PA6
-volatile int gas;
+//volatile int gas;
+volatile bool gas;
 // #define GAS_EN D12 // PB4, unused
 
 // NTC Thermistor : NTC-103F397F (SAMKYOUNG Ceramic)
@@ -254,28 +256,11 @@ void loop()
 	}
 	
 	if (mcu_mode == STA) {
-		// Device state diagnosis
-		if (test_on) {
-			alarmTimer->pause();
-			// Alarm On
-			digitalWrite(EMERGENCY_ALARM, ON);
-#ifdef __DEBUG__
-			debug.println("alarm on!!!!");
-#endif
-			alarm_on = ON;
-			alarm_start = ON;
-			alarmTimer->resume();
-
-			size_t json_len = dataToJson();
-			sendToESP((SENSOR|IMAGE), integrated, json_len);
-
-			test_on = OFF;
-		}
-
 		bool abnormal = checkAbnormal();
 		alarm_sign(abnormal);
+		bool pir_detected = checkPir();
 #ifdef __TEST__
-		bool pir_detected = p_val;
+		pir_detected = p_val;
 		abnormal = abn_val;
 		fire_detected = f_val;
 #endif
@@ -285,11 +270,8 @@ void loop()
 			delay_end = ON;
 			delay_time = curr_delay;
 		}
-#ifdef __TEST__
+		
 		if ((abnormal || pir_detected) && delay_end) {
-#else
-		if ((abnormal || checkPir()) && delay_end) {
-#endif
 #ifdef __DEBUG__
 			debug.println("send on!!!!");
 #endif
@@ -316,6 +298,28 @@ void loop()
 
 			delay_start = ON;
 			periodTimer->resume();
+		}
+
+		// Hardware Diagnosis
+		if (test_on) {
+			alarmTimer->pause();
+			// Alarm On
+			digitalWrite(EMERGENCY_ALARM, ON);
+			delay(10);
+			digitalWrite(EMERGENCY_ALARM, OFF);
+			delay(10);
+			digitalWrite(EMERGENCY_ALARM, ON);
+#ifdef __DEBUG__
+			debug.println("alarm on!!!!");
+#endif
+			alarm_on = ON;
+			alarm_start = ON;
+			alarmTimer->resume();
+
+			size_t json_len = dataToJson();
+			sendToESP((SENSOR|IMAGE), integrated, json_len);
+
+			test_on = OFF;
 		}
 
 		if (alarm_on && alarm_end) {
@@ -449,10 +453,9 @@ void sendToESP(const char op_code, const char send_data) {
 // Send sensor data to ESP32
 size_t dataToJson() {
 	StaticJsonDocument<DATA_DOC_CAPACITY> Data;
-	Data["gas"] = checkGas() >= 100;
-	Data["smoke"] = checkSmoke() >= 10000;
-	Data["fire"] = Data["gas"] && Data["smoke"];
-	checkPir();
+	Data["gas"] = gas; //checkGas() >= 100;
+	Data["smoke"] = smoke; //checkSmoke() >= 10000;
+	Data["fire"] = fire_detected; //Data["gas"] && Data["smoke"];
 	JsonArray Motion = Data.createNestedArray("motion");
 	Motion.add(pir_val[0]);
 	Motion.add(pir_val[1]);
@@ -528,11 +531,19 @@ void alarm_timer()
 
 bool checkAbnormal()
 {
-	smoke = checkSmoke(); 
+#if 1 // Read true or false
+	gas = checkGas() >= 100;
+	smoke = checkSmoke() >= 10000; 
+	fire_detected = gas & smoke;
+
+	return (gas || smoke);
+#else // Read value
 	gas = checkGas();
+	smoke = checkSmoke(); 
 	fire_detected = gas >= 100 && smoke >= 10000;
 
 	return (gas >= 100 || smoke >= 10000)? true : false;
+#endif
 }
 
 // Check PIR1, PIR2
