@@ -281,7 +281,7 @@ void loop()
 			// Current circumstance may be emergency
 			if (abnormal && !alarm_on) {
 				// Alarm On
-				digitalWrite(EMERGENCY_ALARM, ON);
+				digitalWrite(EMERGENCY_ALARM, LOW);
 #ifdef __DEBUG__
 				debug.println("alarm on!!!!");
 #endif
@@ -295,6 +295,7 @@ void loop()
 
 			size_t json_len = dataToJson();
 			sendToESP(_op_code, integrated, json_len);
+			digitalWrite(GLED, LOW); // Transfer complete sign
 
 			delay_start = ON;
 			periodTimer->resume();
@@ -304,11 +305,7 @@ void loop()
 		if (test_on) {
 			alarmTimer->pause();
 			// Alarm On
-			digitalWrite(EMERGENCY_ALARM, ON);
-			delay(10);
-			digitalWrite(EMERGENCY_ALARM, OFF);
-			delay(10);
-			digitalWrite(EMERGENCY_ALARM, ON);
+			digitalWrite(EMERGENCY_ALARM, LOW);
 #ifdef __DEBUG__
 			debug.println("alarm on!!!!");
 #endif
@@ -326,7 +323,7 @@ void loop()
 			alarmTimer->pause();
 			alarm_end = OFF;
 			// Alarm Off
-			digitalWrite(EMERGENCY_ALARM, OFF);
+			digitalWrite(EMERGENCY_ALARM, HIGH);
 			alarm_on = OFF;
 		}
 		// Station mode end
@@ -355,7 +352,7 @@ void ap_init() {
 	alarmTimer->pause();
 	delay_end = ON;
 	// Alarm Off
-	digitalWrite(EMERGENCY_ALARM, OFF);
+	digitalWrite(EMERGENCY_ALARM, HIGH);
 	alarm_sign(OFF);
 	alarm_on = OFF;
 	alarm_end = OFF;
@@ -527,7 +524,6 @@ void alarm_timer()
 		secCnt = 0;
 	}
 }
-
 
 bool checkAbnormal()
 {
