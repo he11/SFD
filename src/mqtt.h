@@ -11,11 +11,11 @@
 #include "debugging.h"
 
 #define __PSRAM_EN__
-#define MQTT_MAX_PACKET_SIZE             16384
+#define MQTT_MAX_PACKET_SIZE             65000 //16384
 
 #define __JSON__
 #define __BASE64_ENC__
-#define __PACKET_FRAG__                  15000 // Frag size must be less about 10% than MQTT_MAX_PACKET_SIZE 
+//#define __PACKET_FRAG__                  15000 // Frag size must be less about 10% than MQTT_MAX_PACKET_SIZE 
 
 typedef int32_t mqtt_err_t;
 

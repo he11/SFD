@@ -77,9 +77,9 @@ typedef enum {
 } cntr_sig_t;
 static uint8_t mcu_mode = NONE;
 static uint8_t esp_mode = NONE;
-static uint8_t req_mode = STA;
-#define MODE_REQ_DELAY(n) ((n)*(60));
-static uint16_t retry_delay = ON;
+static uint8_t ack_mode = NONE;
+#define BOOT_REQ_DELAY 30;
+static uint16_t retry_delay = 3;
 
 MAX30105 particleSensor;
 
@@ -137,7 +137,7 @@ size_t parseData();
 void sendToESP(const char op_code, const uint8_t* send_data, size_t data_len);
 void sendToESP(const char op_code, const char send_data);
 size_t dataToJson();
-bool mcuSetMode(const uint8_t req_mode);
+bool mcuSetMode(const uint8_t ack_mode);
 void ap_init(); 
 void sta_init(); 
 void checkModeSw();
@@ -226,34 +226,35 @@ void loop()
 		received = false;
 	}
 
-	if (!esp_boot) { goto WAIT; }
+	if (!esp_boot) {
+		if (!(--retry_delay)) {
+			sendToESP(REQ, BOOT);
+			retry_delay = BOOT_REQ_DELAY;
+		}
+		delay(500);
+		goto WAIT;
+	}
 
 #ifdef __DEBUG__
-//	debug.printf("mcu: %u / esp: %u / req: %u\n", mcu_mode, esp_mode, req_mode);
+//	debug.printf("mcu: %u / esp: %u / req: %u\n", mcu_mode, esp_mode, ack_mode);
 #endif
 
 	checkModeSw();
 	if (ModeFlag) {
-		req_mode = (mcu_mode|STA)^AP;
+		uint8_t req_mode = (mcu_mode|STA)^AP;
+		sendToESP(REQ, req_mode);
 		digitalWrite(GLED, LOW);  
 		delay(250);
 		digitalWrite(GLED, HIGH);
 		delay(250);
-		retry_delay = ON;
 		ModeFlag = OFF;
+		ack_mode = NONE;
 	}
 
 	// Display current mode state
 	digitalWrite(GLED, !(mcu_mode & AP));
 
-	if ((mcu_mode != req_mode)) {
-		if (!(--retry_delay)) {
-			sendToESP(REQ, req_mode);
-			retry_delay = MODE_REQ_DELAY(3);
-		}
-		delay(500);
-		goto WAIT; // Safeguard
-	}
+	if (mcu_mode != ack_mode) {	if(!(mcuSetMode(ack_mode))) { goto WAIT; } }
 	
 	if (mcu_mode == STA) {
 		bool abnormal = checkAbnormal();
@@ -362,12 +363,12 @@ void sta_init() {
 }
 
 // MCU mode setup
-bool mcuSetMode(const uint8_t req_mode) {
-	if (req_mode & AP) { ap_init(); } // AP & AP_STA
-	else if (req_mode == STA) { sta_init(); } // STA
+bool mcuSetMode(const uint8_t ack_mode) {
+	if (ack_mode & AP) { ap_init(); } // AP & AP_STA
+	else if (ack_mode == STA) { sta_init(); } // STA
 	else { return false; } // NONE
 
-	mcu_mode = req_mode;
+	mcu_mode = ack_mode;
 	sendToESP(ACK, mcu_mode);
 	esp_mode = mcu_mode;
 
@@ -406,14 +407,15 @@ size_t parseData() {
 	if (_op_code & 0x0F) { // Command
 		if (_op_code == ACK) { // ACK
 			uint8_t ack_data = *s_data;
-			if (!(ack_data & MODE_MASK) && (ack_data == req_mode)) { mcuSetMode(ack_data); } // Mode(AP/Station) ACK
+			if (!(ack_data & MODE_MASK)) { ack_mode = ack_data; } // Mode(AP/Station) ACK
+			else if (ack_data == BOOT) {
+				esp_boot = ON;
+				ack_mode = STA;
+			}
 			else { /* Data ACK */ }
 		} else if (_op_code == REQ) {
 			req_data = *s_data;
-			if (req_data == BOOT) {
-				esp_boot = ON;
-				sendToESP(ACK, BOOT);
-			}
+			if (req_data == BOOT) { sendToESP(ACK, BOOT); }
 			//requested = true;
 		} else if (_op_code == NAK) { /* NAK */ }
 	} else if (_op_code & 0xF0) { /* Data type */ }

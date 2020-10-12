@@ -4,6 +4,7 @@
 #include <WiFiClientSecure.h>
 
 // Define
+#define BOOT_REQ_DELAY 30
 #define WIFI_MAX_SIZE 30  // max 30, received ap list
 #define WIFI_ID_MAX_SIZE 30  // WiFi id max size 30
 #define WIFI_PW_MAX_SIZE 64  // WiFi password max size 64
@@ -72,6 +73,7 @@ typedef enum {
 static uint8_t esp_mode = NONE;
 static uint8_t mcu_mode = NONE;
 static uint8_t req_mode = NONE;
+static uint16_t retry_delay = ON;
 
 // Uart Data buffer
 uint8_t serialBuff[SERIAL_BUFF_MAX_SIZE];
@@ -272,10 +274,15 @@ size_t parseData() {
 		if (_op_code == ACK) { // ACK
 			uint8_t ack_data = *s_data;
 			if (!(ack_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
-			else if (ack_data == BOOT) { mcu_boot = ON; }
+			else if (ack_data == BOOT) {
+				mcu_boot = ON;
+				req_mode = STA;
+			}
 			else { /* Data ACK */ }
 		} else if (_op_code == REQ) {
-			if (!(*s_data & MODE_MASK)) { req_mode = *s_data; }
+			uint8_t req_data = *s_data;
+			if (!(req_data & MODE_MASK)) { req_mode = req_data; }
+			else if(req_data == BOOT) { sendToMCU(ACK, BOOT); }
 		} else if (_op_code == NAK) { /* NAK */ }
 	}
 #ifdef __TEST__
@@ -339,7 +346,10 @@ void loop() {
 	size_t pub_len = serialEvent();
 
 	if (!mcu_boot) {
-		sendToMCU(REQ, BOOT);
+		if (!(--retry_delay)) {
+			sendToMCU(REQ, BOOT);
+			retry_delay = BOOT_REQ_DELAY;
+		}
 		delay(500);
 		goto FAIL;
 	}
