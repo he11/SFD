@@ -4,7 +4,7 @@
 #include <WiFiClientSecure.h>
 
 // Define
-#define BOOT_REQ_DELAY 30
+#define BOOT_REQ_DELAY(n) ((n)*(60))
 #define WIFI_MAX_SIZE 30  // max 30, received ap list
 #define WIFI_ID_MAX_SIZE 30  // WiFi id max size 30
 #define WIFI_PW_MAX_SIZE 64  // WiFi password max size 64
@@ -348,7 +348,7 @@ void loop() {
 	if (!mcu_boot) {
 		if (!(--retry_delay)) {
 			sendToMCU(REQ, BOOT);
-			retry_delay = BOOT_REQ_DELAY;
+			retry_delay = BOOT_REQ_DELAY(1);
 		}
 		delay(500);
 		goto FAIL;

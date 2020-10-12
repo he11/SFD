@@ -78,7 +78,7 @@ typedef enum {
 static uint8_t mcu_mode = NONE;
 static uint8_t esp_mode = NONE;
 static uint8_t ack_mode = NONE;
-#define BOOT_REQ_DELAY 30;
+#define BOOT_REQ_DELAY(n) ((n)*(60))
 static uint16_t retry_delay = 3;
 
 MAX30105 particleSensor;
@@ -229,7 +229,7 @@ void loop()
 	if (!esp_boot) {
 		if (!(--retry_delay)) {
 			sendToESP(REQ, BOOT);
-			retry_delay = BOOT_REQ_DELAY;
+			retry_delay = BOOT_REQ_DELAY(1);
 		}
 		delay(500);
 		goto WAIT;
