@@ -61,3 +61,12 @@ void printRaw(const uint8_t* buf, size_t len) {
 	debug.println();
 }
 #endif
+
+void send_err(uint8_t err_code) {
+	Serial.write(0xBE);
+	Serial.write(0x03); // ERR
+	Serial.write((uint8_t)0);
+	Serial.write((uint8_t)1);
+	Serial.write(err_code);
+	Serial.write(0xED);
+}

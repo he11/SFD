@@ -53,22 +53,24 @@ typedef enum {
 
 // MCU to ESP Serial OP Code
 typedef enum {
-	TEST = 0x00, // Used to test
-	ACK  = 0x01, // Positive ack
-	REQ  = 0x02, // Request data
-	NAK  = 0x0E, // Negative ack
+	TEST   = 0x00, // Used to test
+	ACK    = 0x01, // Positive ack
+	REQ    = 0x02, // Request data
+	ERR    = 0x03, // Error
+	NAK    = 0x0E, // Negative ack
 	SENSOR = 0x10, // Sensor data 
-	IMAGE = 0x20, // Image data
+	IMAGE  = 0x20, // Image data
 } op_code_t;
 
 // MCU to ESP Serial Data Type 
 typedef enum {
-	NONE      = 0x00, // None state
-	AP        = 0x01, // AP Mode
-	STA       = 0x02, // Station Mode
-	AP_STA    = 0x03, // AP & Station Mode
-	MODE_MASK = 0xFC, // Not value, used to split a mode from other data
-	BOOT      = 0xFF
+	NONE        = 0x00, // None state
+	AP          = 0x01, // AP Mode
+	STA         = 0x02, // Station Mode
+	AP_STA      = 0x03, // AP & Station Mode
+	MODE_MASK   = 0xFC, // Not value, used to split a mode from other data
+	BOOT        = 0xF0, // Boot OK
+	CAMERA_FAIL = 0xFF // Camera init fail
 } cntr_sig_t;
 static uint8_t esp_mode = NONE;
 static uint8_t mcu_mode = NONE;
@@ -271,19 +273,26 @@ size_t parseData() {
 			add_image = (_op_code & IMAGE)? ON : OFF;
 		}
 	} else if (_op_code & 0x0F) { // Command
-		if (_op_code == ACK) { // ACK
-			uint8_t ack_data = *s_data;
-			if (!(ack_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
-			else if (ack_data == BOOT) {
-				mcu_boot = ON;
-				req_mode = STA;
-			}
-			else { /* Data ACK */ }
-		} else if (_op_code == REQ) {
-			uint8_t req_data = *s_data;
-			if (!(req_data & MODE_MASK)) { req_mode = req_data; }
-			else if(req_data == BOOT) { sendToMCU(ACK, BOOT); }
-		} else if (_op_code == NAK) { /* NAK */ }
+		switch (_op_code) {
+			case ACK: {
+						  uint8_t ack_data = *s_data;
+						  if (!(ack_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
+						  else if (ack_data == BOOT) {
+							  mcu_boot = ON;
+							  req_mode = STA;
+						  }
+						  else { /* Data ACK */ }
+						  break;
+					  }
+			case REQ: {
+						  uint8_t req_data = *s_data;
+						  if (!(req_data & MODE_MASK)) { req_mode = req_data; }
+						  else if(req_data == BOOT) { sendToMCU(ACK, BOOT); }
+						  break;
+					  }
+			case ERR: break;
+			case NAK: break;
+		}
 	}
 #ifdef __TEST__
 	else { adjust_img(*(s_data++), *s_data); }

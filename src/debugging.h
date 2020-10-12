@@ -22,4 +22,5 @@ extern void printLineDiv(const char* buf, size_t len);
 extern void printRaw(const uint8_t* buf, size_t len);
 #endif
 #endif
+extern void send_err(uint8_t err_code);
 #endif // END _DEBUGGING_H_
