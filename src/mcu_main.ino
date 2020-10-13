@@ -110,9 +110,11 @@ volatile bool gas;
 #define THERMISTOR_PIN A1 // PA1
 
 // PIR Sensor
-volatile bool pir_val[2];
-#define PIR_PIN1 A3 // PA4
-#define PIR_PIN2 A4 // PA5
+volatile bool pir[2];
+typedef enum {L, R} pir_dir_t;
+static volatile bool pir_detected = OFF;
+#define PIR_PIN_L A3 // PA4
+#define PIR_PIN_R A4 // PA5
 
 // Dust Sensor
 #define no_dust 0.35  // Initialize Voltage value 0.35
@@ -165,8 +167,8 @@ void onTestSw() {
 
 void setup_gpio() {
 	// PIR Sensor
-	pinMode(PIR_PIN1, INPUT);
-	pinMode(PIR_PIN2, INPUT);
+	pinMode(PIR_PIN_L, INPUT);
+	pinMode(PIR_PIN_R, INPUT);
 
 	// LED
 	pinMode(GLED, OUTPUT);
@@ -261,9 +263,9 @@ void loop()
 	if (mcu_mode == STA) {
 		bool abnormal = checkAbnormal();
 		alarm_sign(abnormal);
-		bool pir_detected = checkPir();
+		bool pir_on = checkPir();
 #ifdef __TEST__
-		pir_detected = p_val;
+		pir_on = p_val;
 		abnormal = abn_val;
 		fire_detected = f_val;
 #endif
@@ -274,7 +276,7 @@ void loop()
 			delay_time = curr_delay;
 		}
 		
-		if ((abnormal || pir_detected) && delay_end) {
+		if (pir_detected || ((abnormal || pir_on) && delay_end)) {
 #ifdef __DEBUG__
 			debug.println("send on!!!!");
 #endif
@@ -470,8 +472,8 @@ size_t dataToJson() {
 	Data["smoke"] = smoke; //checkSmoke() >= 10000;
 	Data["fire"] = fire_detected; //Data["gas"] && Data["smoke"];
 	JsonArray Motion = Data.createNestedArray("motion");
-	Motion.add(pir_val[0]);
-	Motion.add(pir_val[1]);
+	Motion.add(pir[L]);
+	Motion.add(pir[R]);
 	Data["dust"] = readDust();
 	Data["temp"] = readTemp();
 
@@ -561,18 +563,25 @@ bool checkAbnormal()
 // Check PIR1, PIR2
 bool checkPir() 
 {
-	pir_val[0] = digitalRead(PIR_PIN1);
-	pir_val[1] = digitalRead(PIR_PIN2);
+	bool pir_left = digitalRead(PIR_PIN_L);
+	bool pir_right = digitalRead(PIR_PIN_R);
+
+	bool pir_on = pir_left || pir_right;
+	bool pir_trans = (pir_left != pir[L]) || (pir_right != pir[R]);
+	pir_detected = (pir_on && pir_trans)? ON : OFF;
+
+	pir[L] = pir_left;
+	pir[R] = pir_right;
 #ifdef __DEBUG__
 	debug.print("pir1[");
-	debug.print(pir_val[0]);
+	debug.print(pir[L]);
 	debug.print("] pir2[");
-	debug.print(pir_val[1]);
+	debug.print(pir[R]);
 	debug.print("]");
 	debug.println();
 #endif
 
-	return (pir_val[0] | pir_val[1]);
+	return pir_on;
 }
 
 int checkSmoke()
