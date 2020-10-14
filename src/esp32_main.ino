@@ -107,8 +107,8 @@ WebServer server(80);
 // MQTT Server
 const char* mqtt_id PROGMEM      = "************";
 const char* mqtt_pw PROGMEM      = "************";
-const char* mqtt_server PROGMEM  = "15.164.171.238"; // "172.17.0.2";
-const uint16_t mqtt_port PROGMEM = 8883;
+const char* mqtt_server PROGMEM  = "54.180.107.234"; // "172.17.0.2";
+const uint16_t mqtt_port PROGMEM = 1883;
 const char* tps1 PROGMEM         = "auth";
 const char* tps2 PROGMEM         = "config";
 const char* tps3 PROGMEM         = "photo";
@@ -120,8 +120,8 @@ const char* tp_video PROGMEM     = "stream";
 const char* tp_sensor PROGMEM    = "data";
 const uint8_t sub_tp_cnt = sizeof(sub_tps)/sizeof(const char*);
 static bool mqtt_conn = false;
-//WiFiClient espClient;
-WiFiClientSecure espClient;
+WiFiClient espClient;
+//WiFiClientSecure espClient;
 MQTT client(espClient, callback);
 // Local time
 char current[20];
@@ -213,7 +213,7 @@ bool reconn() {
 	return true;
 }
 
-// Timer interrupt service rootin
+// Timer interrupt service routine
 void IRAM_ATTR on_timer() {
 	portENTER_CRITICAL_ISR(&timer_mux); // lock start
 	timer_cnt++;
@@ -619,7 +619,7 @@ bool setup_wifi(wifi_mode_t mode) {
 
 // Setup mqtt server
 void setup_mqtt() {
-	espClient.setCACert((const char*)pgm_read_ptr(&ca_cert));
+//	espClient.setCACert((const char*)pgm_read_ptr(&ca_cert));
 //	espClient.setCertificate((const char*)pgm_read_ptr(&client_cert)); // for client verification
 //	espClient.setPrivateKey((const char*)pgm_read_ptr(&client_private_key));	// for client verification
 	client.setServer((const char*)pgm_read_ptr(&mqtt_server), (uint16_t)pgm_read_word(&mqtt_port));
