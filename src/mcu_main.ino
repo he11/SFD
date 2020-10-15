@@ -48,7 +48,7 @@ static uint8_t integrated[JSON_DATA_BUFF_MAX_SIZE];
 static uint8_t serialBuff[SERIAL_BUFF_MAX_SIZE];
 static uint8_t* s_data = nullptr; // Data start point
 static volatile bool received = OFF;
-//static volatile bool requested = false;
+//static bool requested = OFF;
 //static uint8_t req_data;
 
 // Data start & end signal
@@ -80,7 +80,6 @@ typedef enum {
 } cntr_sig_t;
 static uint8_t mcu_mode = NONE;
 static uint8_t esp_mode = NONE;
-static uint8_t ack_mode = NONE;
 #define BOOT_REQ_DELAY(n) ((n)*(60))
 static uint16_t retry_delay = 3;
 
@@ -142,7 +141,7 @@ size_t parseData();
 void sendToESP(const char op_code, const uint8_t* send_data, size_t data_len);
 void sendToESP(const char op_code, const char send_data);
 size_t dataToJson();
-bool mcuSetMode(const uint8_t ack_mode);
+bool mcuSetMode(const uint8_t conv_mode);
 void mode_conv_init();
 void ap_init(); 
 void sta_init(); 
@@ -243,12 +242,12 @@ void loop()
 	}
 
 #ifdef __DEBUG__
-//	debug.printf("mcu: %u / esp: %u / req: %u\n", mcu_mode, esp_mode, ack_mode);
+//	debug.printf("mcu: %u / esp: %u\n", mcu_mode, esp_mode);
 #endif
 
 	checkModeSw();
 	if (ModeFlag) {
-		ack_mode = NONE;
+		esp_mode = NONE;
 		mode_conv_init();
 		uint8_t req_mode = (mcu_mode|STA)^AP;
 		sendToESP(REQ, req_mode);
@@ -263,7 +262,7 @@ void loop()
 	// Display current mode state
 	digitalWrite(GLED, !(mcu_mode & AP));
 
-	if (mcu_mode != ack_mode) {	if(!(mcuSetMode(ack_mode))) { goto WAIT; } }
+	if (mcu_mode != esp_mode) {	if(!(mcuSetMode(esp_mode))) { goto WAIT; } }
 	
 	if (mcu_mode == STA) {
 		bool abnormal = checkAbnormal();
@@ -382,14 +381,13 @@ void sta_init() {
 }
 
 // MCU mode setup
-bool mcuSetMode(const uint8_t ack_mode) {
-	if (ack_mode & AP) { ap_init(); } // AP & AP_STA
-	else if (ack_mode == STA) { sta_init(); } // STA
+bool mcuSetMode(const uint8_t conv_mode) {
+	if (conv_mode & AP) { ap_init(); } // AP & AP_STA
+	else if (conv_mode == STA) { sta_init(); } // STA
 	else { return false; } // NONE
 
-	mcu_mode = ack_mode;
+	mcu_mode = conv_mode;
 	sendToESP(ACK, mcu_mode);
-	esp_mode = mcu_mode;
 
 	return true;
 }
@@ -427,19 +425,25 @@ size_t parseData() {
 		switch (_op_code) {
 			case ACK: {
 						  uint8_t ack_data = *s_data;
-						  if (!(ack_data & MODE_MASK)) { ack_mode = ack_data; } // Mode(AP/Station) ACK
+						  if (!(ack_data & MODE_MASK)) { esp_mode = ack_data; } // Mode(AP/Station) ACK
 						  else if (ack_data == BOOT) {
 							  digitalWrite(RLED, INVERT_ON_STATE(OFF));
 							  esp_boot = ON;
-							  ack_mode = STA;
+							  esp_mode = STA;
 						  }
 						  else { /* Data ACK */ }
 						  break;
 					  }
 			case REQ: {
+						  //requested = ON;
 						  uint8_t req_data = *s_data;
 						  if (req_data == BOOT) { sendToESP(ACK, BOOT); }
-						  //requested = true;
+#if 0
+						  else if (!(req_data & MODE_MASK)) {
+							  esp_mode = NONE;
+							  sendToESP(ACK, req_data);
+						  }
+#endif
 						  break;
 					  }
 			case ERR: {

@@ -4,6 +4,7 @@
 #include <WiFiClientSecure.h>
 
 // Define
+#define WIFI_SCAN_DELAY(n) ((n)*(2))
 #define BOOT_REQ_DELAY(n) ((n)*(60))
 #define WIFI_MAX_SIZE 30  // max 30, received ap list
 #define WIFI_ID_MAX_SIZE 30  // WiFi id max size 30
@@ -74,10 +75,9 @@ typedef enum {
 } cntr_sig_t;
 static uint8_t esp_mode = NONE;
 static uint8_t mcu_mode = NONE;
-static uint8_t req_mode = NONE;
 static uint16_t retry_delay = ON;
 
-// Uart Data buffer
+// Uart serial data
 uint8_t serialBuff[SERIAL_BUFF_MAX_SIZE];
 uint8_t* s_data = nullptr; // Data start point
 static bool exist_data = OFF;
@@ -89,7 +89,7 @@ hw_timer_t* timer = NULL;
 portMUX_TYPE timer_mux = portMUX_INITIALIZER_UNLOCKED;
 portMUX_TYPE ext_itrt_mux = portMUX_INITIALIZER_UNLOCKED;
 // WiFi scan info
-static bool wifi_scan = OFF;
+static uint16_t scan_delay = WIFI_SCAN_DELAY(30);
 static String wifi_list[WIFI_MAX_SIZE];
 //char* wifi_list[WIFI_MAX_SIZE];
 // WiFi setting info
@@ -139,7 +139,6 @@ const char* fmt8 PROGMEM = "3BP2P(RGB555)";
 const char* img_fmt[] PROGMEM = {fmt1, fmt2, fmt3, fmt4, \
                                  fmt5, fmt6, fmt7, fmt8};
 #endif
-
 
 
 // Search networks in around
@@ -276,18 +275,21 @@ size_t parseData() {
 		switch (_op_code) {
 			case ACK: {
 						  uint8_t ack_data = *s_data;
-						  if (!(ack_data & MODE_MASK)) { req_mode = *s_data; } // Mode(AP/Station) ACK
+						  if (!(ack_data & MODE_MASK)) { mcu_mode = ack_data; } // Mode(AP/Station) ACK
 						  else if (ack_data == BOOT) {
 							  mcu_boot = ON;
-							  req_mode = STA;
+							  mcu_mode = STA;
 						  }
 						  else { /* Data ACK */ }
 						  break;
 					  }
 			case REQ: {
 						  uint8_t req_data = *s_data;
-						  if (!(req_data & MODE_MASK)) { req_mode = req_data; }
-						  else if(req_data == BOOT) { sendToMCU(ACK, BOOT); }
+						  if (!(req_data & MODE_MASK)) {
+							  mcu_mode = NONE;
+							  sendToMCU(ACK, req_data);
+						  }
+						  else if (req_data == BOOT) { sendToMCU(ACK, BOOT); }
 						  break;
 					  }
 			case ERR: break;
@@ -317,16 +319,15 @@ size_t serialEvent() {
 }
 
 // ESP mode setup
-bool espSetMode(const uint8_t req_mode) {
-	if (req_mode & AP) { // AP & AP_STA
+bool espSetMode(const uint8_t conv_mode) {
+	if (conv_mode & AP) { // AP & AP_STA
 		if (!setup_wifi(WIFI_MODE_APSTA)) { return false; }
-	} else if (req_mode == STA) { // STA
+	} else if (conv_mode == STA) { // STA
 		if (!setup_wifi(WIFI_MODE_STA)) { return false; } 
 	} else { return false; } // NONE
 
-	esp_mode = req_mode;
+	esp_mode = conv_mode;
 	sendToMCU(ACK, esp_mode);
-	mcu_mode = esp_mode;
 
 	return true;
 }
@@ -360,8 +361,19 @@ void loop() {
 			retry_delay = BOOT_REQ_DELAY(1);
 		}
 		delay(500);
-		goto FAIL;
+		goto WAIT;
 	}
+
+#ifdef _D1_
+//	debug.printf("esp: %u / mcu: %u\n", esp_mode, mcu_mode);
+#endif
+
+	// ESP Mode change occur
+	if (esp_mode != mcu_mode) { if(!(espSetMode(mcu_mode))) { goto WAIT; } }
+
+#ifdef _D1_
+//	WiFi.printDiag(debug);
+#endif
 
 	if (exist_data) {
 		sendToMCU(ACK, SENSOR);
@@ -373,17 +385,6 @@ void loop() {
 		exist_data = OFF;
 	}
 
-#ifdef _D1_
-//	debug.printf("esp: %u / mcu: %u / req: %u\n", esp_mode, mcu_mode, req_mode);
-#endif
-
-	// ESP Mode change occur
-	if (esp_mode != req_mode) {	if(!(espSetMode(req_mode))) { goto FAIL; } }
-
-#ifdef _D1_
-//	WiFi.printDiag(debug);
-#endif
-
 	if (esp_mode == STA) {
 		// Station mode Work loop START
 		if (WiFi.status() != WL_CONNECTED) {
@@ -394,7 +395,7 @@ void loop() {
 #ifdef _D0_
 			debug.print(".");
 #endif
-			goto FAIL;
+			goto WAIT;
 		} else if (!wifi_conn) {
 			wifi_conn = ON;
 #ifdef _D0_
@@ -415,7 +416,7 @@ void loop() {
 #endif
 		}
 
-		if(!reconn()) { goto FAIL; }
+		if(!reconn()) { goto WAIT; }
 		
 		// To process incoming messages to send publish data and to make a refresh of the connection
 		client.loop(); 
@@ -431,11 +432,10 @@ void loop() {
 		// AP mode work loop START
 #ifdef _D1_
 //		debug.println("loop start (in AP mode)");
-//		debug.printf("scan: %u / timer: %u\n", wifi_scan, timer_cnt);
 #endif
-		if (wifi_scan ^ (timer_cnt & 0x1)) { // about 1 minute period
+		if (!(--scan_delay)) { // every 30 seconds
 			scan_wifi();
-			wifi_scan = !wifi_scan;
+			scan_delay = WIFI_SCAN_DELAY(30);
 		}
 
 		// Client connection handle
@@ -443,7 +443,7 @@ void loop() {
 		// AP mode work loop END
 	}
 
-FAIL:
+WAIT:
 	delay(500);
 }
 
@@ -575,7 +575,6 @@ bool setup_wifi(wifi_mode_t mode) {
 	delay(300);
 
 	if (mode == WIFI_MODE_STA) {
-		timerStop(timer);
 		wifi_conn = ON;
 	} else if (mode == WIFI_MODE_APSTA || mode == WIFI_MODE_AP) {
 #if 0
@@ -587,6 +586,8 @@ bool setup_wifi(wifi_mode_t mode) {
 																		*/
 		WiFi.softAP((const char*)pgm_read_ptr(&ap_ssid), (const char*)pgm_read_ptr(&ap_pw));
 		IPAddress dev_ip = WiFi.softAPIP();
+		scan_wifi();
+
 		if (!web_bind) {
 #if 0 // string reserved
 			strList.reserve(TOTAL_WIFI_STRING_LEN);
@@ -598,6 +599,7 @@ bool setup_wifi(wifi_mode_t mode) {
 			server.begin(); // TODO: how to close???
 			web_bind = ON;
 		}
+
 #ifdef _D0_
 		debug.println();
 		debug.print("Web server IP: "); // temporary
@@ -605,11 +607,7 @@ bool setup_wifi(wifi_mode_t mode) {
 #endif
 		// Ap mode init
 		mqtt_conn = false;
-		wifi_scan = ON;
-		portENTER_CRITICAL(&timer_mux); // lock start
-		timer_cnt = 0;
-		portEXIT_CRITICAL(&timer_mux); // lock end
-		timerRestart(timer);
+		scan_delay = WIFI_SCAN_DELAY(30);
 	} else { return res; } // Wifi off
 
 	delay(500);
