@@ -10,6 +10,7 @@ static bool f_val, abn_val, p_val;
 #endif
 
 // State define
+#define INVERT_ON_STATE(n) (!(n))
 typedef enum {OFF, ON} sw_state_t;
 
 // ESP boot state
@@ -42,11 +43,11 @@ volatile bool smoke;
 #define JSON_DATA_BUFF_MAX_SIZE 200
 static uint8_t integrated[JSON_DATA_BUFF_MAX_SIZE];
 
-// Uart serial
+// Uart serial data
 #define SERIAL_BUFF_MAX_SIZE 200
 static uint8_t serialBuff[SERIAL_BUFF_MAX_SIZE];
 static uint8_t* s_data = nullptr; // Data start point
-static volatile bool received = false;
+static volatile bool received = OFF;
 //static volatile bool requested = false;
 //static uint8_t req_data;
 
@@ -90,7 +91,7 @@ MAX30105 particleSensor;
 #define RLED D6 // PB1
 #define MODESW D2 // PA12
 #define TESTSW D3 // PB0
-static volatile bool last=HIGH, curr=HIGH, ModeFlag = OFF;
+static volatile bool last=INVERT_ON_STATE(OFF), curr=INVERT_ON_STATE(OFF), ModeFlag = OFF;
 static volatile bool test_on = OFF;
 //boolean last=LOW, curr=LOW, ModeFlag=false;
 
@@ -142,12 +143,13 @@ void sendToESP(const char op_code, const uint8_t* send_data, size_t data_len);
 void sendToESP(const char op_code, const char send_data);
 size_t dataToJson();
 bool mcuSetMode(const uint8_t ack_mode);
+void mode_conv_init();
 void ap_init(); 
 void sta_init(); 
 void checkModeSw();
 boolean debounce(boolean last);
 void period_timer();
-void alarm_timer();
+//void alarm_timer();
 bool checkAbnormal();
 bool checkPir(); 
 int checkSmoke();
@@ -172,9 +174,9 @@ void setup_gpio() {
 
 	// LED
 	pinMode(GLED, OUTPUT);
-	digitalWrite(GLED, HIGH);
+	digitalWrite(GLED, INVERT_ON_STATE(OFF));
 	pinMode(RLED, OUTPUT);
-	digitalWrite(RLED, HIGH);
+	digitalWrite(RLED, INVERT_ON_STATE(OFF));
 
 	// AP <-> Station Mode Switch 
 	pinMode(MODESW, INPUT);
@@ -189,11 +191,12 @@ void setup_timer() {
 	periodTimer = new HardwareTimer(ins1);
 	periodTimer->setOverflow(1, HERTZ_FORMAT); // 1HZ
 	periodTimer->attachInterrupt(period_timer);
-
+#if 0 //Wait to remove
 	TIM_TypeDef* ins2 = TIM2;
 	alarmTimer = new HardwareTimer(ins2);
 	alarmTimer->setOverflow(1, HERTZ_FORMAT); // 1HZ
 	alarmTimer->attachInterrupt(alarm_timer);
+#endif
 }
 
 void setup()
@@ -245,14 +248,16 @@ void loop()
 
 	checkModeSw();
 	if (ModeFlag) {
+		ack_mode = NONE;
+		mode_conv_init();
 		uint8_t req_mode = (mcu_mode|STA)^AP;
 		sendToESP(REQ, req_mode);
-		digitalWrite(GLED, LOW);  
+
+		digitalWrite(GLED, INVERT_ON_STATE(ON));  
 		delay(250);
-		digitalWrite(GLED, HIGH);
+		digitalWrite(GLED, INVERT_ON_STATE(OFF));
 		delay(250);
 		ModeFlag = OFF;
-		ack_mode = NONE;
 	}
 
 	// Display current mode state
@@ -263,6 +268,7 @@ void loop()
 	if (mcu_mode == STA) {
 		bool abnormal = checkAbnormal();
 		alarm_sign(abnormal);
+		digitalWrite(EMERGENCY_ALARM, INVERT_ON_STATE(test_on||abnormal));
 		bool pir_on = checkPir();
 #ifdef __TEST__
 		pir_on = p_val;
@@ -283,10 +289,11 @@ void loop()
 			periodTimer->pause();
 			delay_end = OFF;
 
+#if 0 // wait to remove
 			// Current circumstance may be emergency
 			if (abnormal && !alarm_on) {
 				// Alarm On
-				digitalWrite(EMERGENCY_ALARM, LOW);
+				digitalWrite(EMERGENCY_ALARM, INVERT_ON_STATE(ON));
 #ifdef __DEBUG__
 				debug.println("alarm on!!!!");
 #endif
@@ -294,13 +301,14 @@ void loop()
 				alarm_start = ON;
 				alarmTimer->resume();
 			}
+#endif
 
 			uint8_t _op_code = SENSOR;
 			if (fire_detected) { _op_code |= IMAGE; }
 
 			size_t json_len = dataToJson();
 			sendToESP(_op_code, integrated, json_len);
-			digitalWrite(GLED, LOW); // Transfer complete sign
+			digitalWrite(GLED, INVERT_ON_STATE(ON)); // Transfer complete sign
 
 			delay_start = ON;
 			periodTimer->resume();
@@ -308,29 +316,32 @@ void loop()
 
 		// Hardware Diagnosis
 		if (test_on) {
+#if 0 //Wait to remove
 			alarmTimer->pause();
 			// Alarm On
-			digitalWrite(EMERGENCY_ALARM, LOW);
+			digitalWrite(EMERGENCY_ALARM, INVERT_ON_STATE(ON));
 #ifdef __DEBUG__
 			debug.println("alarm on!!!!");
 #endif
 			alarm_on = ON;
 			alarm_start = ON;
 			alarmTimer->resume();
-
+#endif
 			size_t json_len = dataToJson();
 			sendToESP((SENSOR|IMAGE), integrated, json_len);
 
 			test_on = OFF;
 		}
 
+#if 0 //Wait to remove
 		if (alarm_on && alarm_end) {
 			alarmTimer->pause();
 			alarm_end = OFF;
 			// Alarm Off
-			digitalWrite(EMERGENCY_ALARM, HIGH);
+			digitalWrite(EMERGENCY_ALARM, INVERT_ON_STATE(OFF));
 			alarm_on = OFF;
 		}
+#endif
 		// Station mode end
 	} else { /* NONE & AP mode */ }
 
@@ -347,20 +358,24 @@ void operation_test(uint8_t value) {
 #endif
 
 void alarm_sign(bool state) {
-	static bool toggle = HIGH;
-	toggle = (state)? !toggle : HIGH;
+	static bool toggle = INVERT_ON_STATE(OFF);
+	toggle = (state)? !toggle : INVERT_ON_STATE(OFF);
 	digitalWrite(RLED, toggle);   // Red LED Toggle
 }
 
-void ap_init() {
-	periodTimer->pause();
-	alarmTimer->pause();
-	delay_end = ON;
+void mode_conv_init() {
 	// Alarm Off
-	digitalWrite(EMERGENCY_ALARM, HIGH);
 	alarm_sign(OFF);
-	alarm_on = OFF;
-	alarm_end = OFF;
+	digitalWrite(EMERGENCY_ALARM, INVERT_ON_STATE(OFF));
+	periodTimer->pause();
+	delay_end = ON;
+
+//	alarmTimer->pause();
+//	alarm_on = OFF;
+//	alarm_end = OFF;
+}
+
+void ap_init() {
 }
 
 void sta_init() {
@@ -414,7 +429,7 @@ size_t parseData() {
 						  uint8_t ack_data = *s_data;
 						  if (!(ack_data & MODE_MASK)) { ack_mode = ack_data; } // Mode(AP/Station) ACK
 						  else if (ack_data == BOOT) {
-							  digitalWrite(RLED, HIGH);
+							  digitalWrite(RLED, INVERT_ON_STATE(OFF));
 							  esp_boot = ON;
 							  ack_mode = STA;
 						  }
@@ -429,7 +444,7 @@ size_t parseData() {
 					  }
 			case ERR: {
 						  uint8_t err_data = *s_data;
-						  if (err_data == CAMERA_FAIL) { digitalWrite(RLED, LOW); }
+						  if (err_data == CAMERA_FAIL) { digitalWrite(RLED, INVERT_ON_STATE(ON)); }
 						  break;
 					  }
 			case NAK: break;
@@ -484,7 +499,7 @@ size_t dataToJson() {
 void checkModeSw()
 {
 	curr=debounce(last);
-	if (last == HIGH && curr == LOW) {
+	if (last == INVERT_ON_STATE(OFF) && curr == INVERT_ON_STATE(ON)) {
 		ModeFlag = ON;
 	}
 	last=curr;
@@ -523,6 +538,7 @@ void period_timer()
 	}
 }
 
+#if 0 //Wait to remove
 // Alarm timer isr
 void alarm_timer()
 {
@@ -542,6 +558,7 @@ void alarm_timer()
 		secCnt = 0;
 	}
 }
+#endif
 
 bool checkAbnormal()
 {
@@ -647,12 +664,12 @@ float get_dust_density(float voltage)
 #endif
 float readDust()
 {
-	digitalWrite(DUST_EN, LOW);
+	digitalWrite(DUST_EN, INVERT_ON_STATE(ON));
 	delayMicroseconds(280);
 	float Vo_value = analogRead(DUST_PIN); // Read Dust Sensor
 	float sensor_voltage = Vo_value*(5.0/1024); // Read Sensor Voltage
 	delayMicroseconds(9680);
-	digitalWrite(DUST_EN, HIGH);
+	digitalWrite(DUST_EN, INVERT_ON_STATE(ON));
 	delayMicroseconds(9680);
 
 	// 미세 먼지 밀도
