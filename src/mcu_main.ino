@@ -225,7 +225,7 @@ void loop()
 	if (!esp_boot) {
 		if (!(--retry_delay)) {
 			sendToESP(REQ, BOOT);
-			retry_delay = BOOT_REQ_DELAY(1); // every 10 seconds
+			retry_delay = BOOT_REQ_DELAY(2); // every 20 seconds
 		}
 		delay(500);
 		goto WAIT;
