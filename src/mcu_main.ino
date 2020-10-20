@@ -21,11 +21,8 @@ static bool esp_boot = OFF;
 #define ABNORMAL_TRANSFER_DELAY 1 /* based in minute */
 #define NORMAL_TRANSFER_DELAY  10 /*******************/
 HardwareTimer* periodTimer;
-HardwareTimer* alarmTimer;
 static volatile bool delay_start = OFF, delay_end = OFF;
-static volatile bool alarm_start = OFF, alarm_end = OFF;
 static volatile uint8_t delay_time;
-static bool alarm_on = OFF;
 
 // SoftwareSerial
 #include <SoftwareSerial.h>
@@ -148,7 +145,6 @@ void sta_init();
 void checkModeSw();
 boolean debounce(boolean last);
 void period_timer();
-//void alarm_timer();
 bool checkAbnormal();
 bool checkPir(); 
 int checkSmoke();
@@ -190,12 +186,6 @@ void setup_timer() {
 	periodTimer = new HardwareTimer(ins1);
 	periodTimer->setOverflow(1, HERTZ_FORMAT); // 1HZ
 	periodTimer->attachInterrupt(period_timer);
-#if 0 //Wait to remove
-	TIM_TypeDef* ins2 = TIM2;
-	alarmTimer = new HardwareTimer(ins2);
-	alarmTimer->setOverflow(1, HERTZ_FORMAT); // 1HZ
-	alarmTimer->attachInterrupt(alarm_timer);
-#endif
 }
 
 void setup()
@@ -288,20 +278,6 @@ void loop()
 			periodTimer->pause();
 			delay_end = OFF;
 
-#if 0 // wait to remove
-			// Current circumstance may be emergency
-			if (abnormal && !alarm_on) {
-				// Alarm On
-				digitalWrite(EMERGENCY_ALARM, INVERT_ON_STATE(ON));
-#ifdef __DEBUG__
-				debug.println("alarm on!!!!");
-#endif
-				alarm_on = ON;
-				alarm_start = ON;
-				alarmTimer->resume();
-			}
-#endif
-
 			uint8_t _op_code = SENSOR;
 			if (fire_detected) { _op_code |= IMAGE; }
 
@@ -315,32 +291,11 @@ void loop()
 
 		// Hardware Diagnosis
 		if (test_on) {
-#if 0 //Wait to remove
-			alarmTimer->pause();
-			// Alarm On
-			digitalWrite(EMERGENCY_ALARM, INVERT_ON_STATE(ON));
-#ifdef __DEBUG__
-			debug.println("alarm on!!!!");
-#endif
-			alarm_on = ON;
-			alarm_start = ON;
-			alarmTimer->resume();
-#endif
 			size_t json_len = dataToJson();
 			sendToESP((SENSOR|IMAGE), integrated, json_len);
 
 			test_on = OFF;
 		}
-
-#if 0 //Wait to remove
-		if (alarm_on && alarm_end) {
-			alarmTimer->pause();
-			alarm_end = OFF;
-			// Alarm Off
-			digitalWrite(EMERGENCY_ALARM, INVERT_ON_STATE(OFF));
-			alarm_on = OFF;
-		}
-#endif
 		// Station mode end
 	} else { /* NONE & AP mode */ }
 
@@ -368,10 +323,6 @@ void mode_conv_init() {
 	digitalWrite(EMERGENCY_ALARM, INVERT_ON_STATE(OFF));
 	periodTimer->pause();
 	delay_end = ON;
-
-//	alarmTimer->pause();
-//	alarm_on = OFF;
-//	alarm_end = OFF;
 }
 
 void ap_init() {
@@ -541,28 +492,6 @@ void period_timer()
 		secCnt = 0;
 	}
 }
-
-#if 0 //Wait to remove
-// Alarm timer isr
-void alarm_timer()
-{
-	static uint8_t secCnt, minCnt;
-
-	if (alarm_start) {
-		secCnt = 0;
-		minCnt = 0;
-		alarm_start = OFF;
-	}
-
-	if (++secCnt == 60) {
-		if (++minCnt >= ALARM_DURATION_TIME) {
-			alarm_end = ON;
-			minCnt = 0;
-		}
-		secCnt = 0;
-	}
-}
-#endif
 
 bool checkAbnormal()
 {
